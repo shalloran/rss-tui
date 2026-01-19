@@ -18,7 +18,7 @@ If you discover a security vulnerability in rss-tui, please report it responsibl
 ### How to Report
 
 1. **Do NOT** open a public GitHub issue for security vulnerabilities
-2. Email security reports to: [rsstui@halloran.email] (or create a GitHub Security Advisory)
+2. Email security reports to: [rsstui@halloran.email](mailto:rsstui@halloran.email) (or create a GitHub Security Advisory)
 3. Alternatively, use GitHub's [Private Vulnerability Reporting](https://github.com/shalloran/rss-tui/security/advisories/new) feature
 
 ### What to Include
