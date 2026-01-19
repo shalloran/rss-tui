@@ -1,0 +1,45 @@
+[package]
+name = "rss-tui"
+version = "0.6.2"
+authors = ["github/shalloran"]
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "A TUI RSS/Atom reader with vim-like controls and a local-first, offline-first focus. Fork of ckampfe/russ with additional features."
+readme = "README.md"
+repository = "https://github.com/shalloran/rss-tui"
+homepage = "https://github.com/shalloran/rss-tui"
+documentation = "https://github.com/shalloran/rss-tui"
+keywords = ["rss", "tui", "reader", "feed", "terminal"]
+categories = ["command-line-utilities", "multimedia"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+atom_syndication = { version = "0.12", default-features = false }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
+clap = { version = "4", features = ["derive"] }
+copypasta = "0.10"
+crossterm = "0.29"
+diligent-date-parser = "0.1"
+directories = "6"
+html2text = "0.15"
+html-escape = "0.2.13"
+num_cpus = "1.16"
+opml = "1.1"
+r2d2 = "0.8"
+r2d2_sqlite = "0.31"
+rss = { version = "2.0", default-features = false }
+rusqlite = { version = "0.37", features = ["bundled", "chrono"] }
+ratatui = "0.29"
+ureq = "2.12"
+urlencoding = "2.1"
+webbrowser = "1"
+wsl = "0.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
