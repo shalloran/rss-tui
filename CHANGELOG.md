@@ -2,6 +2,10 @@
 
 We welcome contributions to rss-tui, see README.md for more information.
 
+## 0.6.2, 0.6.3
+
+- Bumped versions for minor edits, github actions, format, clippy.
+
 ## 0.6.1
 
 - Add visual indicator for unread entries: feed names now display the count of unread entries in brackets (e.g., "feed-name (5)"). The count only appears when there are unread entries, making it easy to see which feeds have new content at a glance.
