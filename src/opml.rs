@@ -85,16 +85,14 @@ pub(crate) fn export(options: ExportOptions) -> Result<()> {
         .into_iter()
         .filter_map(|feed| {
             // only export feeds that have a feed_link (required for OPML)
-            feed.feed_link.map(|feed_link| {
-                opml::Outline {
-                    text: feed.title.clone().unwrap_or_else(|| feed_link.clone()),
-                    title: feed.title,
-                    r#type: Some("rss".to_string()),
-                    xml_url: Some(feed_link),
-                    html_url: feed.link,
-                    outlines: vec![],
-                    ..Default::default()
-                }
+            feed.feed_link.map(|feed_link| opml::Outline {
+                text: feed.title.clone().unwrap_or_else(|| feed_link.clone()),
+                title: feed.title,
+                r#type: Some("rss".to_string()),
+                xml_url: Some(feed_link),
+                html_url: feed.link,
+                outlines: vec![],
+                ..Default::default()
             })
         })
         .collect();
@@ -119,7 +117,11 @@ pub(crate) fn export(options: ExportOptions) -> Result<()> {
         .to_writer(&mut opml_writer)
         .with_context(|| "unable to write OPML document")?;
 
-    eprintln!("Exported {} feeds to {:?}", opml_doc.body.outlines.len(), options.opml_path);
+    eprintln!(
+        "Exported {} feeds to {:?}",
+        opml_doc.body.outlines.len(),
+        options.opml_path
+    );
 
     Ok(())
 }

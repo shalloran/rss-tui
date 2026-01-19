@@ -4,7 +4,7 @@ use crate::modes::{Mode, ReadMode, Selected};
 use crate::util;
 use anyhow::Result;
 use copypasta::{ClipboardContext, ClipboardProvider};
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::sync::{Arc, Mutex};
 
 macro_rules! delegate_to_locked_inner {
@@ -176,9 +176,10 @@ impl App {
         drop(inner);
 
         // generate export path in same directory as database
-        let export_dir = database_path.parent()
+        let export_dir = database_path
+            .parent()
             .ok_or_else(|| anyhow::anyhow!("database path has no parent directory"))?;
-        
+
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
         let export_path = export_dir.join(format!("rss_tui_export_{}.opml", timestamp));
 
@@ -335,23 +336,28 @@ impl AppImpl {
         // handle deletion in normal mode with confirmation
         if matches!(self.selected, Selected::Feeds) && matches!(self.mode(), Mode::Normal) {
             let feed_id = self.selected_feed_id();
-            
+
             // if already pending deletion for this feed, confirm and delete
             if self.pending_deletion == Some(feed_id) {
                 self.perform_feed_deletion(feed_id)?;
                 self.pending_deletion = None;
                 return Ok(());
             }
-            
+
             // otherwise, set pending deletion and show confirmation message
             self.pending_deletion = Some(feed_id);
-            let feed_title = self.feeds.items
+            let feed_title = self
+                .feeds
+                .items
                 .iter()
                 .find(|f| f.id == feed_id)
                 .and_then(|f| f.title.as_ref())
                 .map(|t| t.as_str())
                 .unwrap_or("this feed");
-            self.flash = Some(format!("Delete '{}'? Hit 'd' confirm, 'n' to cancel", feed_title));
+            self.flash = Some(format!(
+                "Delete '{}'? Hit 'd' confirm, 'n' to cancel",
+                feed_title
+            ));
             return Ok(());
         }
 
@@ -367,7 +373,9 @@ impl AppImpl {
 
         for i in 0..feeds_len {
             if self.feeds.items[i].id == feed_id {
-                feed_title = self.feeds.items[i].title.as_ref()
+                feed_title = self.feeds.items[i]
+                    .title
+                    .as_ref()
                     .map(|t| t.clone())
                     .unwrap_or_else(|| "Feed".to_string());
                 self.feeds.items.remove(i);
@@ -570,15 +578,17 @@ impl AppImpl {
         if matches!(self.selected, Selected::Feeds) && matches!(self.mode(), Mode::Editing) {
             let feed_id = self.selected_feed_id();
             self.pending_rename = Some(feed_id);
-            
+
             // pre-fill input with current title
-            let current_title = self.feeds.items
+            let current_title = self
+                .feeds
+                .items
                 .iter()
                 .find(|f| f.id == feed_id)
                 .and_then(|f| f.title.as_ref())
                 .map(|t| t.clone())
                 .unwrap_or_else(|| String::new());
-            
+
             self.feed_subscription_input = current_title;
             self.flash = None; // clear any existing flash
         }
@@ -588,31 +598,32 @@ impl AppImpl {
     pub fn confirm_rename_feed(&mut self) -> Result<()> {
         if let Some(feed_id) = self.pending_rename {
             let new_title = self.feed_subscription_input.clone();
-            
+
             if new_title.trim().is_empty() {
-                self.error_flash.push(anyhow::anyhow!("Feed title cannot be empty"));
+                self.error_flash
+                    .push(anyhow::anyhow!("Feed title cannot be empty"));
                 self.pending_rename = None;
                 self.reset_feed_subscription_input();
                 return Ok(());
             }
-            
+
             crate::rss::update_feed_title(&mut self.conn, feed_id, new_title.trim().to_string())?;
-            
+
             // update the feed in app state
             if let Some(feed) = self.feeds.items.iter_mut().find(|f| f.id == feed_id) {
                 feed.title = Some(new_title.trim().to_string());
             }
-            
+
             // update current feed if it's the one being renamed
             if let Some(ref mut current_feed) = self.current_feed {
                 if current_feed.id == feed_id {
                     current_feed.title = Some(new_title.trim().to_string());
                 }
             }
-            
+
             self.update_feeds()?;
             self.update_current_feed_and_entries()?;
-            
+
             self.flash = Some("Feed renamed".to_string());
             self.pending_rename = None;
             self.reset_feed_subscription_input();
@@ -767,7 +778,9 @@ impl AppImpl {
 
             #[cfg(not(target_os = "linux"))]
             {
-                unreachable!("This should never happen. This code should only be reachable if the target OS is WSL.")
+                unreachable!(
+                    "This should never happen. This code should only be reachable if the target OS is WSL."
+                )
             }
         } else if let Some(current_link) = current_link {
             let mut ctx = ClipboardContext::new().map_err(|e| anyhow::anyhow!(e))?;
@@ -788,12 +801,10 @@ impl AppImpl {
 
     fn email_article(&mut self) -> Result<()> {
         let (title, url) = match &self.selected {
-            Selected::Entry(entry_meta) => {
-                (
-                    entry_meta.title.as_deref().unwrap_or("No title"),
-                    entry_meta.link.as_deref(),
-                )
-            }
+            Selected::Entry(entry_meta) => (
+                entry_meta.title.as_deref().unwrap_or("No title"),
+                entry_meta.link.as_deref(),
+            ),
             Selected::Entries => {
                 if let Some(entry_meta) = &self.current_entry_meta {
                     (
@@ -831,7 +842,8 @@ impl AppImpl {
                 self.flash = Some("Opening email client...".to_string());
             }
             Err(e) => {
-                self.error_flash.push(anyhow::anyhow!("Failed to open email client: {}", e));
+                self.error_flash
+                    .push(anyhow::anyhow!("Failed to open email client: {}", e));
             }
         }
 

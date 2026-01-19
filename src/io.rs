@@ -1,8 +1,8 @@
 //! This module provides a way to asynchronously refresh feeds, using threads
 
+use crate::ReadOptions;
 use crate::app::App;
 use crate::modes::Mode;
-use crate::ReadOptions;
 use anyhow::Result;
 
 pub(crate) enum Action {

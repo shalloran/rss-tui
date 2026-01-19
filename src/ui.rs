@@ -18,23 +18,23 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![];
     }
-    
+
     let mut lines = Vec::new();
     let words: Vec<&str> = text.split_whitespace().collect();
-    
+
     if words.is_empty() {
         return vec![text.to_string()];
     }
-    
+
     let mut current_line = String::new();
-    
+
     for word in words {
         let test_line = if current_line.is_empty() {
             word.to_string()
         } else {
             format!("{} {}", current_line, word)
         };
-        
+
         if test_line.len() <= width {
             current_line = test_line;
         } else {
@@ -54,11 +54,11 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
             }
         }
     }
-    
+
     if !current_line.is_empty() {
         lines.push(current_line);
     }
-    
+
     if lines.is_empty() {
         vec![text.to_string()]
     } else {
@@ -213,31 +213,30 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .iter()
         .map(|feed| {
             let feed_title = feed.title.as_deref().unwrap_or("No title");
-            
+
             // get unread count for this feed
-            let unread_count = crate::rss::count_unread_entries(&app.conn, feed.id)
-                .unwrap_or(0);
-            
+            let unread_count = crate::rss::count_unread_entries(&app.conn, feed.id).unwrap_or(0);
+
             // format feed name with count if there are unread entries
             let display_text = if unread_count > 0 {
                 format!("{} ({})", feed_title, unread_count)
             } else {
                 feed_title.to_string()
             };
-            
+
             ListItem::new(Span::raw(display_text))
         })
         .collect();
 
     let default_title = String::from("Feeds");
-    
+
     // if there's a flash message, split the area to show it separately
     if app.flash.is_some() {
         let chunks = Layout::default()
             .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
             .direction(Direction::Vertical)
             .split(area);
-        
+
         // show flash message in a paragraph at the top
         if let Some(flash_text) = &app.flash {
             let flash_paragraph = Paragraph::new(Text::from(flash_text.as_str()))
@@ -245,7 +244,7 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
                 .wrap(Wrap { trim: false });
             f.render_widget(flash_paragraph, chunks[0]);
         }
-        
+
         // show feeds list with normal title
         let feeds = List::new(feeds).block(
             Block::default().borders(Borders::ALL).title(Span::styled(
@@ -400,7 +399,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             if app.pending_deletion.is_some() {
                 text.push_str("d - confirm deletion; n - cancel\n");
             }
-        },
+        }
         Mode::Editing => {
             if app.pending_rename.is_some() {
                 text.push_str("R - rename feed; enter - confirm rename\n");
@@ -421,9 +420,11 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 fn draw_new_feed_input(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     let text = &app.feed_subscription_input;
     let text = Text::from(text.as_str());
-    
+
     let title = if app.pending_rename.is_some() {
-        let feed_title = app.feeds.items
+        let feed_title = app
+            .feeds
+            .items
             .iter()
             .find(|f| Some(f.id) == app.pending_rename)
             .and_then(|f| f.title.as_ref())
@@ -433,7 +434,7 @@ fn draw_new_feed_input(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     } else {
         "Add a feed".to_string()
     };
-    
+
     let input = Paragraph::new(text)
         .style(Style::default().fg(Color::Yellow))
         .block(
@@ -454,20 +455,20 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     } else {
         1
     };
-    
+
     let entries = app
         .entries
         .items
         .iter()
         .map(|entry| {
-            let title_text = entry.title.as_ref().map_or_else(
-                || "No title".to_string(),
-                |t| t.to_string(),
-            );
-            
+            let title_text = entry
+                .title
+                .as_ref()
+                .map_or_else(|| "No title".to_string(), |t| t.to_string());
+
             // wrap the title text to fit the available width
             let wrapped_lines = wrap_text(&title_text, available_width);
-            
+
             // create a list item with multiple lines if needed
             if wrapped_lines.len() == 1 {
                 ListItem::new(Span::raw(wrapped_lines[0].clone()))

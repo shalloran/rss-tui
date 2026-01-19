@@ -425,7 +425,7 @@ fn update(app: &mut App, action: Action) -> Result<()> {
         Action::EnterEditingMode => {
             app.cancel_pending_deletion();
             app.set_mode(Mode::Editing);
-        },
+        }
         Action::CopyLinkToClipboard => app.put_current_link_in_clipboard()?,
         Action::OpenLinkInBrowser => app.open_link_in_browser()?,
         Action::SubscribeToFeed => app.subscribe_to_feed()?,
@@ -440,7 +440,7 @@ fn update(app: &mut App, action: Action) -> Result<()> {
         Action::EnterNormalMode => {
             app.cancel_rename_feed();
             app.set_mode(Mode::Normal);
-        },
+        }
         Action::ClearErrorFlash => app.clear_error_flash(),
         Action::SelectAndShowCurrentEntry => app.select_and_show_current_entry()?,
     };
