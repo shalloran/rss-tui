@@ -5,7 +5,7 @@ rss-tui [*rust-ooey*] is based on russ, which is a TUI RSS/Atom reader with vim-
 This is a new repo from a fork of [ckampfe/russ](https://github.com/ckampfe/russ), with a few improvements.
 
 [![crates.io](https://img.shields.io/crates/v/rss-tui.svg)](https://crates.io/crates/rss-tui)
-[![Rust](https://github.com/ckampfe/russ/actions/workflows/rust.yml/badge.svg)](https://github.com/ckampfe/russ/actions/workflows/rust.yml)
+[![Rust](https://github.com/shalloran/rss-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/shalloran/rss-tui/actions/workflows/ci.yml)
 
 ---
 
