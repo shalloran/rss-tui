@@ -375,8 +375,7 @@ impl AppImpl {
             if self.feeds.items[i].id == feed_id {
                 feed_title = self.feeds.items[i]
                     .title
-                    .as_ref()
-                    .map(|t| t.clone())
+                    .clone()
                     .unwrap_or_else(|| "Feed".to_string());
                 self.feeds.items.remove(i);
 
@@ -586,8 +585,8 @@ impl AppImpl {
                 .iter()
                 .find(|f| f.id == feed_id)
                 .and_then(|f| f.title.as_ref())
-                .map(|t| t.clone())
-                .unwrap_or_else(|| String::new());
+                .cloned()
+                .unwrap_or_default();
 
             self.feed_subscription_input = current_title;
             self.flash = None; // clear any existing flash
@@ -615,10 +614,10 @@ impl AppImpl {
             }
 
             // update current feed if it's the one being renamed
-            if let Some(ref mut current_feed) = self.current_feed {
-                if current_feed.id == feed_id {
-                    current_feed.title = Some(new_title.trim().to_string());
-                }
+            if let Some(ref mut current_feed) = self.current_feed
+                && current_feed.id == feed_id
+            {
+                current_feed.title = Some(new_title.trim().to_string());
             }
 
             self.update_feeds()?;
