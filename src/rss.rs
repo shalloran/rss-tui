@@ -16,7 +16,7 @@ use std::str::FromStr;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EntryId(i64);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct FeedId(i64);
 
 impl From<i64> for EntryId {
@@ -725,6 +725,47 @@ pub fn count_unread_entries(conn: &rusqlite::Connection, feed_id: FeedId) -> Res
         |row| row.get(0),
     )?;
     Ok(count as usize)
+}
+
+/// Returns entry counts per day for the last N days for sparkline display.
+/// Returns a vector of counts, one per day, from oldest to newest.
+pub fn get_feed_activity(
+    conn: &rusqlite::Connection,
+    feed_id: FeedId,
+    days: u32,
+) -> Result<Vec<u64>> {
+    let start_date = Utc::now() - chrono::Duration::days(days as i64);
+
+    // Query entries grouped by date
+    let mut statement = conn.prepare(
+        "SELECT DATE(COALESCE(pub_date, inserted_at)) as day, COUNT(*) as count
+         FROM entries
+         WHERE feed_id = ?1
+         AND COALESCE(pub_date, inserted_at) >= ?2
+         GROUP BY day
+         ORDER BY day ASC",
+    )?;
+
+    let mut day_counts: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+
+    for row in statement.query_map(params![feed_id, start_date], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+    })? {
+        let (day, count) = row?;
+        day_counts.insert(day, count);
+    }
+
+    // Fill in missing days with 0, from oldest to newest
+    let mut activity = Vec::with_capacity(days as usize);
+    for i in (0..days).rev() {
+        let date = (Utc::now() - chrono::Duration::days(i as i64))
+            .format("%Y-%m-%d")
+            .to_string();
+        activity.push(*day_counts.get(&date).unwrap_or(&0));
+    }
+
+    Ok(activity)
 }
 
 pub fn get_entry_meta(conn: &rusqlite::Connection, entry_id: EntryId) -> Result<EntryMetadata> {

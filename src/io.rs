@@ -39,6 +39,7 @@ pub(crate) fn io_loop(
                 })?;
 
                 app.update_current_feed_and_entries()?;
+                app.refresh_single_feed_activity(feed_id)?;
                 let elapsed = now.elapsed();
                 app.set_flash(format!("Refreshed feed in {elapsed:?}"));
                 app.force_redraw()?;

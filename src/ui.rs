@@ -4,7 +4,10 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, LineGauge, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    Tabs, Wrap,
+};
 use std::rc::Rc;
 
 use crate::app::AppImpl;
@@ -205,8 +208,38 @@ fn draw_entry_info(f: &mut Frame, area: Rect, entry_meta: &EntryMetadata) {
     f.render_widget(paragraph, area);
 }
 
+/// Renders activity data as a mini bar chart using Unicode block characters
+/// Returns a styled span for better visual appearance
+fn render_mini_sparkline(data: &[u64]) -> Span<'static> {
+    // use smoother block characters for better visual appearance
+    const BARS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
+
+    if data.is_empty() {
+        return Span::raw("");
+    }
+
+    let max = *data.iter().max().unwrap_or(&1);
+    if max == 0 {
+        return Span::styled(
+            data.iter().map(|_| BARS[0]).collect::<String>(),
+            Style::default().fg(Color::DarkGray),
+        );
+    }
+
+    let sparkline_text: String = data
+        .iter()
+        .map(|&v| {
+            let idx = ((v * 7) / max) as usize;
+            BARS[idx.min(7)]
+        })
+        .collect();
+
+    // use a muted cyan-gray color that complements the UI theme
+    Span::styled(sparkline_text, Style::default().fg(Color::Rgb(120, 150, 160)))
+}
+
 fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
-    // create feed list items with unread counts
+    // create feed list items with unread counts and sparklines
     let feeds: Vec<ListItem> = app
         .feeds
         .items
@@ -217,14 +250,27 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             // get unread count for this feed
             let unread_count = crate::rss::count_unread_entries(&app.conn, feed.id).unwrap_or(0);
 
-            // format feed name with count if there are unread entries
-            let display_text = if unread_count > 0 {
-                format!("{} ({})", feed_title, unread_count)
-            } else {
-                feed_title.to_string()
-            };
+            // build the display with styled components
+            let mut display_spans = vec![Span::raw(feed_title)];
+            
+            // add sparkline if available
+            if let Some(data) = app.feed_activity_cache.get(&feed.id) {
+                if !data.is_empty() {
+                    display_spans.push(Span::raw(" "));
+                    display_spans.push(render_mini_sparkline(data));
+                }
+            }
+            
+            // add unread count if > 0
+            if unread_count > 0 {
+                display_spans.push(Span::raw(" "));
+                display_spans.push(Span::styled(
+                    format!("({})", unread_count),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
 
-            ListItem::new(Span::raw(display_text))
+            ListItem::new(Line::from(display_spans))
         })
         .collect();
 
@@ -340,7 +386,7 @@ fn draw_feed_info(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     match app.read_mode {
         ReadMode::ShowUnread => text.push_str("Unread entries: "),
         ReadMode::ShowRead => text.push_str("Read entries: "),
-        ReadMode::All => unreachable!("ReadMode::All should never be possible from the UI!"),
+        ReadMode::All => text.push_str("All entries: "),
     }
     text.push_str(app.entries.items.len().to_string().as_str());
     text.push('\n');
@@ -378,7 +424,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             }
         }
         Selected::Entry(_) => {
-            text.push_str("r - mark entry read/un; a - toggle view read/un\n");
+            text.push_str("r - mark entry read/un; a - cycle tabs\n");
             text.push_str("c - copy link; o - open link in browser\n");
             if app.mode == Mode::Normal {
                 text.push_str("e - email article (title as subject, URL as body)\n");
@@ -386,7 +432,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             }
         }
         _ => {
-            text.push_str("r - mark entry read/un; a - toggle view read/un\n");
+            text.push_str("r - mark entry read/un; a - cycle tabs\n");
             text.push_str("c - copy link; o - open link in browser\n");
             if app.mode == Mode::Normal {
                 text.push_str("E - export feeds to OPML\n");
@@ -395,6 +441,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     }
     match app.mode {
         Mode::Normal => {
+            text.push_str("1/2/3 - Unread/All/Read tabs\n");
             text.push_str("i - edit mode; q - exit\n");
             if app.pending_deletion.is_some() {
                 text.push_str("d - confirm deletion; n - cancel\n");
@@ -448,10 +495,38 @@ fn draw_new_feed_input(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     f.render_widget(input, area);
 }
 
+fn draw_tabs(f: &mut Frame, area: Rect, app: &AppImpl) {
+    let titles = vec![" Unread ", " All ", " Read "];
+    let selected_idx = match app.read_mode {
+        ReadMode::ShowUnread => 0,
+        ReadMode::All => 1,
+        ReadMode::ShowRead => 2,
+    };
+
+    let tabs = Tabs::new(titles)
+        .style(Style::default().fg(Color::White))
+        .highlight_style(Style::default().fg(PINK).add_modifier(Modifier::BOLD))
+        .select(selected_idx)
+        .divider("|");
+
+    f.render_widget(tabs, area);
+}
+
 fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
+    // Split area for tabs and entries list
+    let chunks = Layout::default()
+        .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
+        .direction(Direction::Vertical)
+        .split(area);
+
+    // Draw tabs at the top
+    draw_tabs(f, chunks[0], app);
+
+    let entries_area = chunks[1];
+
     // calculate available width for wrapping (accounting for borders and highlight symbol)
-    let available_width = if area.width > 4 {
-        area.width as usize - 4
+    let available_width = if entries_area.width > 4 {
+        entries_area.width as usize - 4
     } else {
         1
     };
@@ -508,34 +583,43 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     };
 
     if !&app.error_flash.is_empty() {
-        let chunks = Layout::default()
+        let error_chunks = Layout::default()
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
             .direction(Direction::Vertical)
-            .split(area);
-        {
-            let error_text = error_text(&app.error_flash);
+            .split(entries_area);
 
-            let block = Block::default().borders(Borders::ALL).title(Span::styled(
-                "Error - press 'q' to close",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ));
+        let error_text = error_text(&app.error_flash);
 
-            let error_widget = Paragraph::new(error_text)
-                .block(block)
-                .wrap(Wrap { trim: false })
-                .scroll((0, 0));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            "Error - press 'q' to close",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
-            f.render_stateful_widget(entries_titles, chunks[0], &mut app.entries.state);
-            f.render_widget(error_widget, chunks[1]);
-        }
+        let error_widget = Paragraph::new(error_text)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((0, 0));
+
+        f.render_stateful_widget(entries_titles, error_chunks[0], &mut app.entries.state);
+        f.render_widget(error_widget, error_chunks[1]);
     } else {
-        f.render_stateful_widget(entries_titles, area, &mut app.entries.state);
+        f.render_stateful_widget(entries_titles, entries_area, &mut app.entries.state);
     }
 }
 
 fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
+    // Split area for tabs and entry content
+    let main_chunks = Layout::default()
+        .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
+        .direction(Direction::Vertical)
+        .split(area);
+
+    // Draw tabs at the top
+    draw_tabs(f, main_chunks[0], app);
+
+    let content_area = main_chunks[1];
     let scroll = app.entry_scroll_position;
     let entry_meta = if let Selected::Entry(e) = &app.selected {
         e
@@ -569,79 +653,46 @@ fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
 
-    let entry_chunk_height = area.height - 2;
+    // Calculate visible lines for scrolling (account for borders and tabs)
+    let entry_chunk_height = content_area.height.saturating_sub(2);
+    app.entry_lines_rendered_len = entry_chunk_height;
 
-    let progress_gauge_chunk_percent = 3;
+    // Create scrollbar
+    let scrollbar = Scrollbar::default()
+        .orientation(ScrollbarOrientation::VerticalRight)
+        .thumb_style(Style::default().fg(PINK))
+        .track_style(Style::default().fg(Color::DarkGray));
 
-    let entry_percent = 100.0 - progress_gauge_chunk_percent as f32;
-
-    let real_entry_chunk_height =
-        (entry_chunk_height as f32 * (entry_percent / 100.0)).floor() as u16;
-
-    app.entry_lines_rendered_len = real_entry_chunk_height;
-
-    let percent = if app.entry_lines_len > 0 {
-        let furthest_visible_position = app.entry_scroll_position + real_entry_chunk_height;
-        let percent = ((furthest_visible_position as f32 / app.entry_lines_len as f32) * 100.0)
-            .floor() as usize;
-
-        if percent <= 100 { percent } else { 100 }
-    } else {
-        0
-    };
-
-    let label = format!("{percent}/100");
-    let ratio = percent as f64 / 100.0;
-    let gauge = LineGauge::default()
-        .block(Block::default().borders(Borders::NONE))
-        .filled_style(Style::default().fg(PINK))
-        .ratio(ratio)
-        .label(label);
+    let mut scrollbar_state = ScrollbarState::new(app.entry_lines_len)
+        .position(app.entry_scroll_position as usize);
 
     if !app.error_flash.is_empty() {
         let chunks = Layout::default()
-            .constraints(
-                [
-                    Constraint::Percentage(57),
-                    Constraint::Percentage(progress_gauge_chunk_percent),
-                    Constraint::Percentage(40),
-                ]
-                .as_ref(),
-            )
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
             .direction(Direction::Vertical)
-            .split(area);
-        {
-            let error_text = error_text(&app.error_flash);
-            let block = Block::default().borders(Borders::ALL).title(Span::styled(
-                "Error - press 'q' to close",
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .fg(Color::Cyan),
-            ));
+            .split(content_area);
 
-            let error_widget = Paragraph::new(error_text)
-                .block(block)
-                .wrap(Wrap { trim: false })
-                .scroll((0, 0));
+        let error_text = error_text(&app.error_flash);
+        let error_block = Block::default().borders(Borders::ALL).title(Span::styled(
+            "Error - press 'q' to close",
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
+        ));
 
-            f.render_widget(paragraph, chunks[0]);
-            f.render_widget(gauge, chunks[1]);
-            f.render_widget(error_widget, chunks[2]);
-        }
-    } else {
-        let chunks = Layout::default()
-            .constraints(
-                [
-                    Constraint::Percentage(entry_percent.ceil() as u16),
-                    Constraint::Percentage(progress_gauge_chunk_percent),
-                ]
-                .as_ref(),
-            )
-            .direction(Direction::Vertical)
-            .split(area);
+        let error_widget = Paragraph::new(error_text)
+            .block(error_block)
+            .wrap(Wrap { trim: false })
+            .scroll((0, 0));
 
+        // Render paragraph and scrollbar in top chunk
         f.render_widget(paragraph, chunks[0]);
-        f.render_widget(gauge, chunks[1]);
+        f.render_stateful_widget(scrollbar, chunks[0], &mut scrollbar_state);
+        f.render_widget(error_widget, chunks[1]);
+    } else {
+        // Render paragraph with scrollbar overlay
+        f.render_widget(paragraph, content_area);
+        f.render_stateful_widget(scrollbar, content_area, &mut scrollbar_state);
     }
 }
 

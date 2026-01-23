@@ -296,6 +296,7 @@ enum Action {
     RefreshFeed,
     ToggleHelp,
     ToggleReadMode,
+    SetReadMode(modes::ReadMode),
     EnterEditingMode,
     OpenLinkInBrowser,
     CopyLinkToClipboard,
@@ -370,6 +371,13 @@ fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
                     },
                     (KeyCode::Char('n'), _) => Some(Action::CancelPendingDeletion),
                     (KeyCode::Char('E'), _) => Some(Action::ExportFeeds),
+                    (KeyCode::Char('1'), _) => {
+                        Some(Action::SetReadMode(modes::ReadMode::ShowUnread))
+                    }
+                    (KeyCode::Char('2'), _) => Some(Action::SetReadMode(modes::ReadMode::All)),
+                    (KeyCode::Char('3'), _) => {
+                        Some(Action::SetReadMode(modes::ReadMode::ShowRead))
+                    }
                     _ => None,
                 }
             }
@@ -421,6 +429,7 @@ fn update(app: &mut App, action: Action) -> Result<()> {
         Action::PageDown => app.page_down(),
         Action::ToggleHelp => app.toggle_help()?,
         Action::ToggleReadMode => app.toggle_read_mode()?,
+        Action::SetReadMode(mode) => app.set_read_mode(mode)?,
         Action::ToggleReadStatus => app.toggle_read()?,
         Action::EnterEditingMode => {
             app.cancel_pending_deletion();

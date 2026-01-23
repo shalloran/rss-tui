@@ -101,8 +101,6 @@ impl App {
                 })
             }
 
-            inner.entry_column_width = chunks[1].width;
-
             crate::ui::draw(f, chunks, &mut inner);
         })?;
 
@@ -221,7 +219,19 @@ impl App {
         let mut inner = self.inner.lock().unwrap();
         inner.cancel_rename_feed();
     }
+
+    pub(crate) fn set_read_mode(&self, mode: crate::modes::ReadMode) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.set_read_mode(mode)
+    }
+
+    pub(crate) fn refresh_single_feed_activity(&self, feed_id: crate::rss::FeedId) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.refresh_single_feed_activity(feed_id)
+    }
 }
+
+const SPARKLINE_DAYS: u32 = 14;
 
 #[derive(Debug)]
 pub struct AppImpl {
@@ -233,6 +243,7 @@ pub struct AppImpl {
     // feed stuff
     pub current_feed: Option<crate::rss::Feed>,
     pub feeds: util::StatefulList<crate::rss::Feed>,
+    pub feed_activity_cache: std::collections::HashMap<crate::rss::FeedId, Vec<u64>>,
     // entry stuff
     pub current_entry_meta: Option<crate::rss::EntryMetadata>,
     pub entries: util::StatefulList<crate::rss::EntryMetadata>,
@@ -291,6 +302,7 @@ impl AppImpl {
             should_quit: false,
             error_flash: vec![],
             feeds,
+            feed_activity_cache: std::collections::HashMap::new(),
             entries,
             selected,
             entry_scroll_position: 0,
@@ -407,6 +419,28 @@ impl AppImpl {
     pub fn update_feeds(&mut self) -> Result<()> {
         let feeds = crate::rss::get_feeds(&self.conn)?.into();
         self.feeds = feeds;
+        self.refresh_feed_activity()?;
+        Ok(())
+    }
+
+    pub fn refresh_feed_activity(&mut self) -> Result<()> {
+        self.feed_activity_cache.clear();
+        for feed in &self.feeds.items {
+            if let Ok(activity) =
+                crate::rss::get_feed_activity(&self.conn, feed.id, SPARKLINE_DAYS)
+            {
+                self.feed_activity_cache.insert(feed.id, activity);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn refresh_single_feed_activity(&mut self, feed_id: crate::rss::FeedId) -> Result<()> {
+        if let Ok(activity) =
+            crate::rss::get_feed_activity(&self.conn, feed_id, SPARKLINE_DAYS)
+        {
+            self.feed_activity_cache.insert(feed_id, activity);
+        }
         Ok(())
     }
 
@@ -723,13 +757,18 @@ impl AppImpl {
         self.cancel_pending_deletion();
         self.cancel_rename_feed();
         match (&self.read_mode, &self.selected) {
+            (ReadMode::ShowUnread, Selected::Feeds)
+            | (ReadMode::ShowUnread, Selected::Entries) => {
+                self.entry_selection_position = 0;
+                self.read_mode = ReadMode::All
+            }
+            (ReadMode::All, Selected::Feeds) | (ReadMode::All, Selected::Entries) => {
+                self.entry_selection_position = 0;
+                self.read_mode = ReadMode::ShowRead
+            }
             (ReadMode::ShowRead, Selected::Feeds) | (ReadMode::ShowRead, Selected::Entries) => {
                 self.entry_selection_position = 0;
                 self.read_mode = ReadMode::ShowUnread
-            }
-            (ReadMode::ShowUnread, Selected::Feeds) | (ReadMode::ShowUnread, Selected::Entries) => {
-                self.entry_selection_position = 0;
-                self.read_mode = ReadMode::ShowRead
             }
             _ => (),
         }
@@ -743,6 +782,28 @@ impl AppImpl {
 
         self.update_current_entry_meta()?;
 
+        Ok(())
+    }
+
+    pub fn set_read_mode(&mut self, mode: ReadMode) -> Result<()> {
+        self.cancel_pending_deletion();
+        self.cancel_rename_feed();
+        if matches!(
+            self.selected,
+            Selected::Feeds | Selected::Entries | Selected::Entry(_)
+        ) {
+            self.entry_selection_position = 0;
+            self.read_mode = mode;
+            self.update_current_entries()?;
+
+            if !self.entries.items.is_empty() {
+                self.entries.reset();
+            } else {
+                self.entries.unselect();
+            }
+
+            self.update_current_entry_meta()?;
+        }
         Ok(())
     }
 
