@@ -235,7 +235,10 @@ fn render_mini_sparkline(data: &[u64]) -> Span<'static> {
         .collect();
 
     // use a muted cyan-gray color that complements the UI theme
-    Span::styled(sparkline_text, Style::default().fg(Color::Rgb(120, 150, 160)))
+    Span::styled(
+        sparkline_text,
+        Style::default().fg(Color::Rgb(120, 150, 160)),
+    )
 }
 
 fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
@@ -252,15 +255,15 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 
             // build the display with styled components
             let mut display_spans = vec![Span::raw(feed_title)];
-            
+
             // add sparkline if available
-            if let Some(data) = app.feed_activity_cache.get(&feed.id) {
-                if !data.is_empty() {
-                    display_spans.push(Span::raw(" "));
-                    display_spans.push(render_mini_sparkline(data));
-                }
+            if let Some(data) = app.feed_activity_cache.get(&feed.id)
+                && !data.is_empty()
+            {
+                display_spans.push(Span::raw(" "));
+                display_spans.push(render_mini_sparkline(data));
             }
-            
+
             // add unread count if > 0
             if unread_count > 0 {
                 display_spans.push(Span::raw(" "));
@@ -663,8 +666,8 @@ fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .thumb_style(Style::default().fg(PINK))
         .track_style(Style::default().fg(Color::DarkGray));
 
-    let mut scrollbar_state = ScrollbarState::new(app.entry_lines_len)
-        .position(app.entry_scroll_position as usize);
+    let mut scrollbar_state =
+        ScrollbarState::new(app.entry_lines_len).position(app.entry_scroll_position as usize);
 
     if !app.error_flash.is_empty() {
         let chunks = Layout::default()

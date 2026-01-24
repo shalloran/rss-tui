@@ -746,8 +746,7 @@ pub fn get_feed_activity(
          ORDER BY day ASC",
     )?;
 
-    let mut day_counts: std::collections::HashMap<String, u64> =
-        std::collections::HashMap::new();
+    let mut day_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
 
     for row in statement.query_map(params![feed_id, start_date], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))

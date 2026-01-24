@@ -426,8 +426,7 @@ impl AppImpl {
     pub fn refresh_feed_activity(&mut self) -> Result<()> {
         self.feed_activity_cache.clear();
         for feed in &self.feeds.items {
-            if let Ok(activity) =
-                crate::rss::get_feed_activity(&self.conn, feed.id, SPARKLINE_DAYS)
+            if let Ok(activity) = crate::rss::get_feed_activity(&self.conn, feed.id, SPARKLINE_DAYS)
             {
                 self.feed_activity_cache.insert(feed.id, activity);
             }
@@ -436,9 +435,7 @@ impl AppImpl {
     }
 
     pub fn refresh_single_feed_activity(&mut self, feed_id: crate::rss::FeedId) -> Result<()> {
-        if let Ok(activity) =
-            crate::rss::get_feed_activity(&self.conn, feed_id, SPARKLINE_DAYS)
-        {
+        if let Ok(activity) = crate::rss::get_feed_activity(&self.conn, feed_id, SPARKLINE_DAYS) {
             self.feed_activity_cache.insert(feed_id, activity);
         }
         Ok(())
@@ -757,8 +754,7 @@ impl AppImpl {
         self.cancel_pending_deletion();
         self.cancel_rename_feed();
         match (&self.read_mode, &self.selected) {
-            (ReadMode::ShowUnread, Selected::Feeds)
-            | (ReadMode::ShowUnread, Selected::Entries) => {
+            (ReadMode::ShowUnread, Selected::Feeds) | (ReadMode::ShowUnread, Selected::Entries) => {
                 self.entry_selection_position = 0;
                 self.read_mode = ReadMode::All
             }

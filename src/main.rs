@@ -375,9 +375,7 @@ fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
                         Some(Action::SetReadMode(modes::ReadMode::ShowUnread))
                     }
                     (KeyCode::Char('2'), _) => Some(Action::SetReadMode(modes::ReadMode::All)),
-                    (KeyCode::Char('3'), _) => {
-                        Some(Action::SetReadMode(modes::ReadMode::ShowRead))
-                    }
+                    (KeyCode::Char('3'), _) => Some(Action::SetReadMode(modes::ReadMode::ShowRead)),
                     _ => None,
                 }
             }
