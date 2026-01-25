@@ -13,8 +13,157 @@ use std::rc::Rc;
 use crate::app::AppImpl;
 use crate::modes::{Mode, ReadMode, Selected};
 use crate::rss::EntryMetadata;
+use chrono::Utc;
 
 const PINK: Color = Color::Rgb(255, 150, 167);
+
+// theme system
+#[derive(Clone, Copy, Debug)]
+pub enum Theme {
+    Default,
+    Hacker,
+    Ubuntu,
+}
+
+impl Theme {
+    pub fn unread_entry_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Yellow,
+            Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
+            Theme::Ubuntu => Color::Rgb(255, 140, 0), // orange
+        }
+    }
+
+    pub fn read_entry_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::DarkGray,
+            Theme::Hacker => Color::Rgb(0, 150, 0), // darker green
+            Theme::Ubuntu => Color::DarkGray,
+        }
+    }
+
+    pub fn new_entry_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Green,
+            Theme::Hacker => Color::Cyan,
+            Theme::Ubuntu => Color::Rgb(119, 41, 83), // purple
+        }
+    }
+
+    pub fn unread_feed_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Yellow,
+            Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
+            Theme::Ubuntu => Color::Rgb(255, 140, 0), // orange
+        }
+    }
+
+    pub fn error_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Red,
+            Theme::Hacker => Color::Rgb(255, 0, 0), // bright red
+            Theme::Ubuntu => Color::Red,
+        }
+    }
+
+    pub fn feed_type_badge_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::DarkGray,
+            Theme::Hacker => Color::Rgb(0, 200, 0), // medium green
+            Theme::Ubuntu => Color::DarkGray,
+        }
+    }
+
+    // background color for the entire UI
+    pub fn background_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Reset,
+            Theme::Hacker => Color::Black,
+            Theme::Ubuntu => Color::Reset,
+        }
+    }
+
+    // default text color
+    pub fn text_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Reset,
+            Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
+            Theme::Ubuntu => Color::Reset,
+        }
+    }
+
+    // title/header color
+    pub fn title_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Cyan,
+            Theme::Hacker => Color::Rgb(0, 255, 255), // bright cyan
+            Theme::Ubuntu => Color::Cyan,
+        }
+    }
+
+    // border color
+    pub fn border_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Reset,
+            Theme::Hacker => Color::Rgb(0, 200, 0), // medium green
+            Theme::Ubuntu => Color::Reset,
+        }
+    }
+
+    // highlight/selection color
+    pub fn highlight_color(&self) -> Color {
+        match self {
+            Theme::Default => PINK,
+            Theme::Hacker => Color::Rgb(0, 255, 255), // bright cyan
+            Theme::Ubuntu => PINK,
+        }
+    }
+
+    // flash message color
+    pub fn flash_color(&self) -> Color {
+        match self {
+            Theme::Default => Color::Yellow,
+            Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
+            Theme::Ubuntu => Color::Yellow,
+        }
+    }
+}
+
+// symbols configuration
+#[derive(Clone, Debug)]
+pub struct Symbols {
+    pub unread_entry: &'static str,
+    pub read_entry: &'static str,
+    pub new_entry: &'static str,
+    pub unread_feed: &'static str,
+    pub error: &'static str,
+    pub feed_type_rss: &'static str,
+    pub feed_type_atom: &'static str,
+}
+
+impl Default for Symbols {
+    fn default() -> Self {
+        Symbols {
+            unread_entry: "● ",
+            read_entry: "✓ ",
+            new_entry: "🆕 ",
+            unread_feed: "● ",
+            error: "⚠ ",
+            feed_type_rss: " [RSS]",
+            feed_type_atom: " [ATOM]",
+        }
+    }
+}
+
+// get current theme from app state
+fn get_theme(app: &AppImpl) -> Theme {
+    app.current_theme
+}
+
+// get current symbols (for now, default; can be made configurable later)
+fn get_symbols() -> Symbols {
+    Symbols::default()
+}
 
 // wrap text to fit within a given width, splitting on word boundaries when possible
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
@@ -115,15 +264,15 @@ fn draw_info_column(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 
         // INFO
         match &app.selected {
-            Selected::Entry(entry) => draw_entry_info(f, chunks[1], entry),
+            Selected::Entry(entry) => draw_entry_info(f, chunks[1], entry, app),
             Selected::Entries => {
                 if let Some(entry_meta) = &app.current_entry_meta {
-                    draw_entry_info(f, chunks[1], entry_meta);
+                    draw_entry_info(f, chunks[1], entry_meta, app);
                 } else {
                     draw_feed_info(f, chunks[1], app);
                 }
             }
-            Selected::None => draw_first_run_helper(f, chunks[1]),
+            Selected::None => draw_first_run_helper(f, chunks[1], app),
             _ => {
                 if app.current_feed.is_some() {
                     draw_feed_info(f, chunks[1], app);
@@ -147,22 +296,36 @@ fn draw_info_column(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     }
 }
 
-fn draw_first_run_helper(f: &mut Frame, area: Rect) {
+fn draw_first_run_helper(f: &mut Frame, area: Rect, app: &AppImpl) {
+    let theme = get_theme(app);
     let text = "Press 'i', then enter an RSS/Atom feed URL, then hit `Enter`!";
 
-    let block = Block::default().borders(Borders::ALL).title(Span::styled(
-        "TO SUBSCRIBE TO YOUR FIRST FEED",
-        Style::default().fg(PINK).add_modifier(Modifier::BOLD),
-    ));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_color()))
+        .style(Style::default().bg(theme.background_color()))
+        .title(Span::styled(
+            "TO SUBSCRIBE TO YOUR FIRST FEED",
+            Style::default()
+                .fg(theme.highlight_color())
+                .bg(theme.background_color())
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let paragraph = Paragraph::new(Text::from(text))
         .block(block)
+        .style(
+            Style::default()
+                .fg(theme.text_color())
+                .bg(theme.background_color()),
+        )
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
 }
 
-fn draw_entry_info(f: &mut Frame, area: Rect, entry_meta: &EntryMetadata) {
+fn draw_entry_info(f: &mut Frame, area: Rect, entry_meta: &EntryMetadata, app: &AppImpl) {
+    let theme = get_theme(app);
     let mut text = String::new();
     if let Some(item) = &entry_meta.title {
         text.push_str("Title: ");
@@ -194,15 +357,25 @@ fn draw_entry_info(f: &mut Frame, area: Rect, entry_meta: &EntryMetadata) {
         text.push('\n');
     }
 
-    let block = Block::default().borders(Borders::ALL).title(Span::styled(
-        "Info",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    ));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_color()))
+        .style(Style::default().bg(theme.background_color()))
+        .title(Span::styled(
+            "Info",
+            Style::default()
+                .fg(theme.title_color())
+                .bg(theme.background_color())
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let paragraph = Paragraph::new(Text::from(text.as_str()))
         .block(block)
+        .style(
+            Style::default()
+                .fg(theme.text_color())
+                .bg(theme.background_color()),
+        )
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
@@ -210,7 +383,7 @@ fn draw_entry_info(f: &mut Frame, area: Rect, entry_meta: &EntryMetadata) {
 
 /// Renders activity data as a mini bar chart using Unicode block characters
 /// Returns a styled span for better visual appearance
-fn render_mini_sparkline(data: &[u64]) -> Span<'static> {
+fn render_mini_sparkline(data: &[u64], theme: Theme) -> Span<'static> {
     // use smoother block characters for better visual appearance
     const BARS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
 
@@ -234,14 +407,24 @@ fn render_mini_sparkline(data: &[u64]) -> Span<'static> {
         })
         .collect();
 
-    // use a muted cyan-gray color that complements the UI theme
+    // use theme-appropriate color for sparkline
+    let sparkline_color = match theme {
+        Theme::Default => Color::Rgb(120, 150, 160), // muted cyan-gray
+        Theme::Hacker => Color::Rgb(0, 200, 0),      // medium green
+        Theme::Ubuntu => Color::Rgb(120, 150, 160),  // muted cyan-gray
+    };
     Span::styled(
         sparkline_text,
-        Style::default().fg(Color::Rgb(120, 150, 160)),
+        Style::default()
+            .fg(sparkline_color)
+            .bg(theme.background_color()),
     )
 }
 
 fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
+    let theme = get_theme(app);
+    let symbols = get_symbols();
+
     // create feed list items with unread counts and sparklines
     let feeds: Vec<ListItem> = app
         .feeds
@@ -254,14 +437,46 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             let unread_count = crate::rss::count_unread_entries(&app.conn, feed.id).unwrap_or(0);
 
             // build the display with styled components
-            let mut display_spans = vec![Span::raw(feed_title)];
+            let mut display_spans = Vec::new();
+
+            // unread status prefix
+            if unread_count > 0 {
+                display_spans.push(Span::styled(
+                    symbols.unread_feed,
+                    Style::default().fg(theme.unread_feed_color()),
+                ));
+            } else {
+                display_spans.push(Span::raw("  ")); // spacing for alignment
+            }
+
+            // feed title
+            display_spans.push(Span::raw(feed_title));
+
+            // feed type badge
+            let feed_type_badge = match feed.feed_kind {
+                crate::rss::FeedKind::Rss => symbols.feed_type_rss,
+                crate::rss::FeedKind::Atom => symbols.feed_type_atom,
+            };
+            display_spans.push(Span::styled(
+                feed_type_badge,
+                Style::default().fg(theme.feed_type_badge_color()),
+            ));
+
+            // error indicator
+            if app.feed_errors.contains_key(&feed.id) {
+                display_spans.push(Span::raw(" "));
+                display_spans.push(Span::styled(
+                    symbols.error,
+                    Style::default().fg(theme.error_color()),
+                ));
+            }
 
             // add sparkline if available
             if let Some(data) = app.feed_activity_cache.get(&feed.id)
                 && !data.is_empty()
             {
                 display_spans.push(Span::raw(" "));
-                display_spans.push(render_mini_sparkline(data));
+                display_spans.push(render_mini_sparkline(data, theme));
             }
 
             // add unread count if > 0
@@ -289,24 +504,38 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         // show flash message in a paragraph at the top
         if let Some(flash_text) = &app.flash {
             let flash_paragraph = Paragraph::new(Text::from(flash_text.as_str()))
-                .style(Style::default().fg(Color::Yellow))
+                .style(
+                    Style::default()
+                        .fg(theme.flash_color())
+                        .bg(theme.background_color()),
+                )
                 .wrap(Wrap { trim: false });
             f.render_widget(flash_paragraph, chunks[0]);
         }
 
         // show feeds list with normal title
         let feeds = List::new(feeds).block(
-            Block::default().borders(Borders::ALL).title(Span::styled(
-                &default_title,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border_color()))
+                .style(Style::default().bg(theme.background_color()))
+                .title(Span::styled(
+                    &default_title,
+                    Style::default()
+                        .fg(theme.title_color())
+                        .bg(theme.background_color())
+                        .add_modifier(Modifier::BOLD),
+                )),
         );
 
         let feeds = match app.selected {
             Selected::Feeds => feeds
-                .highlight_style(Style::default().fg(PINK).add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                        .fg(theme.highlight_color())
+                        .bg(theme.background_color())
+                        .add_modifier(Modifier::BOLD),
+                )
                 .highlight_symbol("> "),
             _ => feeds,
         };
@@ -315,17 +544,27 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     } else {
         // no flash message, show feeds list normally
         let feeds = List::new(feeds).block(
-            Block::default().borders(Borders::ALL).title(Span::styled(
-                &default_title,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border_color()))
+                .style(Style::default().bg(theme.background_color()))
+                .title(Span::styled(
+                    &default_title,
+                    Style::default()
+                        .fg(theme.title_color())
+                        .bg(theme.background_color())
+                        .add_modifier(Modifier::BOLD),
+                )),
         );
 
         let feeds = match app.selected {
             Selected::Feeds => feeds
-                .highlight_style(Style::default().fg(PINK).add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                        .fg(theme.highlight_color())
+                        .bg(theme.background_color())
+                        .add_modifier(Modifier::BOLD),
+                )
                 .highlight_symbol("> "),
             _ => feeds,
         };
@@ -400,15 +639,26 @@ fn draw_feed_info(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         text.push('\n');
     }
 
-    let block = Block::default().borders(Borders::ALL).title(Span::styled(
-        "Info",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    ));
+    let theme = get_theme(app);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_color()))
+        .style(Style::default().bg(theme.background_color()))
+        .title(Span::styled(
+            "Info",
+            Style::default()
+                .fg(theme.title_color())
+                .bg(theme.background_color())
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let paragraph = Paragraph::new(Text::from(text.as_str()))
         .block(block)
+        .style(
+            Style::default()
+                .fg(theme.text_color())
+                .bg(theme.background_color()),
+        )
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
@@ -446,6 +696,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         Mode::Normal => {
             text.push_str("1/2/3 - Unread/All/Read tabs\n");
             text.push_str("i - edit mode; q - exit\n");
+            text.push_str("t - cycle theme (default/hacker/ubuntu)\n");
             if app.pending_deletion.is_some() {
                 text.push_str("d - confirm deletion; n - cancel\n");
             }
@@ -462,8 +713,19 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 
     text.push_str("? - show/hide help");
 
-    let help_message =
-        Paragraph::new(Text::from(text.as_str())).block(Block::default().borders(Borders::ALL));
+    let theme = get_theme(app);
+    let help_message = Paragraph::new(Text::from(text.as_str()))
+        .style(
+            Style::default()
+                .fg(theme.text_color())
+                .bg(theme.background_color()),
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border_color()))
+                .style(Style::default().bg(theme.background_color())),
+        );
     f.render_widget(help_message, area);
 }
 
@@ -485,20 +747,31 @@ fn draw_new_feed_input(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         "Add a feed".to_string()
     };
 
+    let theme = get_theme(app);
     let input = Paragraph::new(text)
-        .style(Style::default().fg(Color::Yellow))
+        .style(
+            Style::default()
+                .fg(theme.flash_color())
+                .bg(theme.background_color()),
+        )
         .block(
-            Block::default().borders(Borders::ALL).title(Span::styled(
-                title,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border_color()))
+                .style(Style::default().bg(theme.background_color()))
+                .title(Span::styled(
+                    title,
+                    Style::default()
+                        .fg(theme.title_color())
+                        .bg(theme.background_color())
+                        .add_modifier(Modifier::BOLD),
+                )),
         );
     f.render_widget(input, area);
 }
 
 fn draw_tabs(f: &mut Frame, area: Rect, app: &AppImpl) {
+    let theme = get_theme(app);
     let titles = vec![" Unread ", " All ", " Read "];
     let selected_idx = match app.read_mode {
         ReadMode::ShowUnread => 0,
@@ -507,8 +780,17 @@ fn draw_tabs(f: &mut Frame, area: Rect, app: &AppImpl) {
     };
 
     let tabs = Tabs::new(titles)
-        .style(Style::default().fg(Color::White))
-        .highlight_style(Style::default().fg(PINK).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(theme.text_color())
+                .bg(theme.background_color()),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(theme.highlight_color())
+                .bg(theme.background_color())
+                .add_modifier(Modifier::BOLD),
+        )
         .select(selected_idx)
         .divider("|");
 
@@ -527,9 +809,14 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 
     let entries_area = chunks[1];
 
-    // calculate available width for wrapping (accounting for borders and highlight symbol)
-    let available_width = if entries_area.width > 4 {
-        entries_area.width as usize - 4
+    let theme = get_theme(app);
+    let symbols = get_symbols();
+
+    // calculate available width for wrapping (accounting for borders, highlight symbol, and indicators)
+    // indicators take up ~3-4 chars (symbol + space), so subtract that
+    let indicator_width = 4;
+    let available_width = if entries_area.width > (4 + indicator_width as u16) {
+        (entries_area.width as usize - 4 - indicator_width).max(1)
     } else {
         1
     };
@@ -539,24 +826,87 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .items
         .iter()
         .map(|entry| {
+            let mut spans = Vec::new();
+
+            // read/unread indicator
+            if entry.read_at.is_none() {
+                spans.push(Span::styled(
+                    symbols.unread_entry,
+                    Style::default().fg(theme.unread_entry_color()),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    symbols.read_entry,
+                    Style::default().fg(theme.read_entry_color()),
+                ));
+            }
+
             let title_text = entry
                 .title
                 .as_ref()
                 .map_or_else(|| "No title".to_string(), |t| t.to_string());
 
-            // wrap the title text to fit the available width
-            let wrapped_lines = wrap_text(&title_text, available_width);
-
-            // create a list item with multiple lines if needed
-            if wrapped_lines.len() == 1 {
-                ListItem::new(Span::raw(wrapped_lines[0].clone()))
+            // recency indicator (new entries <24h old)
+            let is_new = if let Some(pub_date) = &entry.pub_date {
+                let now = Utc::now();
+                let age = now - *pub_date;
+                age.num_hours() < 24
             } else {
-                // create multiple lines for multi-line items
-                let lines: Vec<Line> = wrapped_lines
-                    .into_iter()
-                    .map(|line| Line::from(Span::raw(line)))
-                    .collect();
-                ListItem::new(Text::from(lines))
+                false
+            };
+
+            if is_new {
+                // wrap the title text to fit the available width
+                let wrapped_lines = wrap_text(&title_text, available_width);
+
+                // create a list item with multiple lines if needed
+                if wrapped_lines.len() == 1 {
+                    spans.push(Span::raw(wrapped_lines[0].clone()));
+                    spans.push(Span::styled(
+                        format!(" {}", symbols.new_entry),
+                        Style::default().fg(theme.new_entry_color()),
+                    ));
+                    ListItem::new(Line::from(spans))
+                } else {
+                    // create multiple lines for multi-line items
+                    let mut lines: Vec<Line> = Vec::new();
+                    for (i, line) in wrapped_lines.iter().enumerate() {
+                        if i == 0 {
+                            let mut first_line_spans = spans.clone();
+                            first_line_spans.push(Span::raw(line.clone()));
+                            first_line_spans.push(Span::styled(
+                                format!(" {}", symbols.new_entry),
+                                Style::default().fg(theme.new_entry_color()),
+                            ));
+                            lines.push(Line::from(first_line_spans));
+                        } else {
+                            lines.push(Line::from(Span::raw(line.clone())));
+                        }
+                    }
+                    ListItem::new(Text::from(lines))
+                }
+            } else {
+                // wrap the title text to fit the available width
+                let wrapped_lines = wrap_text(&title_text, available_width);
+
+                // create a list item with multiple lines if needed
+                if wrapped_lines.len() == 1 {
+                    spans.push(Span::raw(wrapped_lines[0].clone()));
+                    ListItem::new(Line::from(spans))
+                } else {
+                    // create multiple lines for multi-line items
+                    let mut lines: Vec<Line> = Vec::new();
+                    for (i, line) in wrapped_lines.iter().enumerate() {
+                        if i == 0 {
+                            let mut first_line_spans = spans.clone();
+                            first_line_spans.push(Span::raw(line.clone()));
+                            lines.push(Line::from(first_line_spans));
+                        } else {
+                            lines.push(Line::from(Span::raw(line.clone())));
+                        }
+                    }
+                    ListItem::new(Text::from(lines))
+                }
             }
         })
         .collect::<Vec<ListItem>>();
@@ -570,17 +920,27 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .unwrap_or(&default_title);
 
     let entries_titles = List::new(entries).block(
-        Block::default().borders(Borders::ALL).title(Span::styled(
-            title,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_color()))
+            .style(Style::default().bg(theme.background_color()))
+            .title(Span::styled(
+                title,
+                Style::default()
+                    .fg(theme.title_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
     );
 
     let entries_titles = match app.selected {
         Selected::Entries => entries_titles
-            .highlight_style(Style::default().fg(PINK).add_modifier(Modifier::BOLD))
+            .highlight_style(
+                Style::default()
+                    .fg(theme.highlight_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("> "),
         _ => entries_titles,
     };
@@ -593,15 +953,25 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 
         let error_text = error_text(&app.error_flash);
 
-        let block = Block::default().borders(Borders::ALL).title(Span::styled(
-            "Error - press 'q' to close",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ));
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_color()))
+            .style(Style::default().bg(theme.background_color()))
+            .title(Span::styled(
+                "Error - press 'q' to close",
+                Style::default()
+                    .fg(theme.title_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            ));
 
         let error_widget = Paragraph::new(error_text)
             .block(block)
+            .style(
+                Style::default()
+                    .fg(theme.error_color())
+                    .bg(theme.background_color()),
+            )
             .wrap(Wrap { trim: false })
             .scroll((0, 0));
 
@@ -644,15 +1014,26 @@ fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     title.push_str(" - ");
     title.push_str(feed_title);
 
-    let block = Block::default().borders(Borders::ALL).title(Span::styled(
-        &title,
-        Style::default()
-            .add_modifier(Modifier::BOLD)
-            .fg(Color::Cyan),
-    ));
+    let theme = get_theme(app);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_color()))
+        .style(Style::default().bg(theme.background_color()))
+        .title(Span::styled(
+            &title,
+            Style::default()
+                .fg(theme.title_color())
+                .bg(theme.background_color())
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let paragraph = Paragraph::new(app.current_entry_text.as_str())
         .block(block)
+        .style(
+            Style::default()
+                .fg(theme.text_color())
+                .bg(theme.background_color()),
+        )
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
 
@@ -663,8 +1044,16 @@ fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     // Create scrollbar
     let scrollbar = Scrollbar::default()
         .orientation(ScrollbarOrientation::VerticalRight)
-        .thumb_style(Style::default().fg(PINK))
-        .track_style(Style::default().fg(Color::DarkGray));
+        .thumb_style(
+            Style::default()
+                .fg(theme.highlight_color())
+                .bg(theme.background_color()),
+        )
+        .track_style(
+            Style::default()
+                .fg(theme.border_color())
+                .bg(theme.background_color()),
+        );
 
     let mut scrollbar_state =
         ScrollbarState::new(app.entry_lines_len).position(app.entry_scroll_position as usize);
@@ -676,15 +1065,25 @@ fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             .split(content_area);
 
         let error_text = error_text(&app.error_flash);
-        let error_block = Block::default().borders(Borders::ALL).title(Span::styled(
-            "Error - press 'q' to close",
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(Color::Cyan),
-        ));
+        let error_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_color()))
+            .style(Style::default().bg(theme.background_color()))
+            .title(Span::styled(
+                "Error - press 'q' to close",
+                Style::default()
+                    .fg(theme.title_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            ));
 
         let error_widget = Paragraph::new(error_text)
             .block(error_block)
+            .style(
+                Style::default()
+                    .fg(theme.error_color())
+                    .bg(theme.background_color()),
+            )
             .wrap(Wrap { trim: false })
             .scroll((0, 0));
 

@@ -32,11 +32,21 @@ pub(crate) fn io_loop(
                 app.set_flash("Refreshing feed...".to_string());
                 app.force_redraw()?;
 
-                refresh_feeds(&app, &connection_pool, &[feed_id], |_app, fetch_result| {
-                    if let Err(e) = fetch_result {
-                        app.push_error_flash(e)
-                    }
-                })?;
+                refresh_feeds(
+                    &app,
+                    &connection_pool,
+                    &[feed_id],
+                    |_app, feed_id, fetch_result| match fetch_result {
+                        Ok(_) => {
+                            _app.clear_feed_error(feed_id);
+                        }
+                        Err(e) => {
+                            let error_msg = format!("{}", e);
+                            _app.push_error_flash(anyhow::anyhow!("{}", error_msg));
+                            _app.set_feed_error(feed_id, e);
+                        }
+                    },
+                )?;
 
                 app.update_current_feed_and_entries()?;
                 app.refresh_single_feed_activity(feed_id)?;
@@ -54,12 +64,22 @@ pub(crate) fn io_loop(
                 let all_feeds_len = feed_ids.len();
                 let mut successfully_refreshed_len = 0usize;
 
-                refresh_feeds(&app, &connection_pool, &feed_ids, |app, fetch_result| {
-                    match fetch_result {
-                        Ok(_) => successfully_refreshed_len += 1,
-                        Err(e) => app.push_error_flash(e),
-                    }
-                })?;
+                refresh_feeds(
+                    &app,
+                    &connection_pool,
+                    &feed_ids,
+                    |app, feed_id, fetch_result| match fetch_result {
+                        Ok(_) => {
+                            successfully_refreshed_len += 1;
+                            app.clear_feed_error(feed_id);
+                        }
+                        Err(e) => {
+                            let error_msg = format!("{}", e);
+                            app.push_error_flash(anyhow::anyhow!("{}", error_msg));
+                            app.set_feed_error(feed_id, e);
+                        }
+                    },
+                )?;
 
                 {
                     app.update_current_feed_and_entries()?;
@@ -132,7 +152,7 @@ fn refresh_feeds<F>(
     mut refresh_result_handler: F,
 ) -> Result<()>
 where
-    F: FnMut(&App, anyhow::Result<()>),
+    F: FnMut(&App, crate::rss::FeedId, anyhow::Result<()>),
 {
     let chunks = chunkify_for_threads(feed_ids, num_cpus::get() * 2);
 
@@ -142,16 +162,23 @@ where
             let http_client = app.http_client();
             let chunk = chunk.to_owned();
 
-            std::thread::spawn(move || -> Result<Vec<Result<(), anyhow::Error>>> {
-                let mut conn = pool_get_result?;
+            std::thread::spawn(
+                move || -> Result<Vec<(crate::rss::FeedId, Result<(), anyhow::Error>)>> {
+                    let mut conn = pool_get_result?;
 
-                let results = chunk
-                    .into_iter()
-                    .map(|feed_id| crate::rss::refresh_feed(&http_client, &mut conn, feed_id))
-                    .collect();
+                    let results = chunk
+                        .into_iter()
+                        .map(|feed_id| {
+                            let result = crate::rss::refresh_feed(&http_client, &mut conn, feed_id);
+                            (feed_id, result)
+                        })
+                        .collect();
 
-                Ok::<Vec<Result<(), anyhow::Error>>, anyhow::Error>(results)
-            })
+                    Ok::<Vec<(crate::rss::FeedId, Result<(), anyhow::Error>)>, anyhow::Error>(
+                        results,
+                    )
+                },
+            )
         })
         .collect();
 
@@ -159,8 +186,8 @@ where
         let chunk_results = join_handle
             .join()
             .expect("unable to join worker thread to io thread");
-        for chunk_result in chunk_results? {
-            refresh_result_handler(app, chunk_result)
+        for (feed_id, chunk_result) in chunk_results? {
+            refresh_result_handler(app, feed_id, chunk_result)
         }
     }
 

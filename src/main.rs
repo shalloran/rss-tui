@@ -314,6 +314,7 @@ enum Action {
     ClearErrorFlash,
     SelectAndShowCurrentEntry,
     ToggleReadStatus,
+    CycleTheme,
 }
 
 fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
@@ -376,6 +377,7 @@ fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
                     }
                     (KeyCode::Char('2'), _) => Some(Action::SetReadMode(modes::ReadMode::All)),
                     (KeyCode::Char('3'), _) => Some(Action::SetReadMode(modes::ReadMode::ShowRead)),
+                    (KeyCode::Char('t'), _) => Some(Action::CycleTheme),
                     _ => None,
                 }
             }
@@ -450,6 +452,7 @@ fn update(app: &mut App, action: Action) -> Result<()> {
         }
         Action::ClearErrorFlash => app.clear_error_flash(),
         Action::SelectAndShowCurrentEntry => app.select_and_show_current_entry()?,
+        Action::CycleTheme => app.cycle_theme(),
     };
 
     Ok(())

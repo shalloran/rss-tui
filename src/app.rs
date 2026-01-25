@@ -68,7 +68,8 @@ impl App {
         (toggle_read, Result<()>),
         (toggle_read_mode, Result<()>),
         (update_current_feed_and_entries, Result<()>),
-        (select_and_show_current_entry, Result<()>)
+        (select_and_show_current_entry, Result<()>),
+        (cycle_theme, ())
     ];
 
     pub fn new(
@@ -229,6 +230,22 @@ impl App {
         let mut inner = self.inner.lock().unwrap();
         inner.refresh_single_feed_activity(feed_id)
     }
+
+    pub(crate) fn set_feed_error(&self, feed_id: crate::rss::FeedId, error: anyhow::Error) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.set_feed_error(feed_id, error);
+    }
+
+    pub(crate) fn clear_feed_error(&self, feed_id: crate::rss::FeedId) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.clear_feed_error(feed_id);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn has_feed_error(&self, feed_id: crate::rss::FeedId) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.has_feed_error(feed_id)
+    }
 }
 
 const SPARKLINE_DAYS: u32 = 14;
@@ -244,6 +261,7 @@ pub struct AppImpl {
     pub current_feed: Option<crate::rss::Feed>,
     pub feeds: util::StatefulList<crate::rss::Feed>,
     pub feed_activity_cache: std::collections::HashMap<crate::rss::FeedId, Vec<u64>>,
+    pub feed_errors: std::collections::HashMap<crate::rss::FeedId, anyhow::Error>,
     // entry stuff
     pub current_entry_meta: Option<crate::rss::EntryMetadata>,
     pub entries: util::StatefulList<crate::rss::EntryMetadata>,
@@ -259,6 +277,7 @@ pub struct AppImpl {
     pub mode: Mode,
     pub read_mode: ReadMode,
     pub show_help: bool,
+    pub current_theme: crate::ui::Theme,
     // misc
     pub error_flash: Vec<anyhow::Error>,
     pub feed_subscription_input: String,
@@ -295,6 +314,13 @@ impl AppImpl {
 
         let is_wsl = wsl::is_wsl();
 
+        // initialize theme from env var or default
+        let current_theme = match std::env::var("RSS_TUI_THEME").as_ref().map(|s| s.as_str()) {
+            Ok("hacker") => crate::ui::Theme::Hacker,
+            Ok("ubuntu") => crate::ui::Theme::Ubuntu,
+            _ => crate::ui::Theme::Default,
+        };
+
         let mut app = AppImpl {
             conn,
             database_path: options.database_path.clone(),
@@ -303,6 +329,7 @@ impl AppImpl {
             error_flash: vec![],
             feeds,
             feed_activity_cache: std::collections::HashMap::new(),
+            feed_errors: std::collections::HashMap::new(),
             entries,
             selected,
             entry_scroll_position: 0,
@@ -323,6 +350,7 @@ impl AppImpl {
             event_tx,
             is_wsl,
             io_tx,
+            current_theme,
         };
 
         app.update_feeds()?;
@@ -1026,5 +1054,32 @@ impl AppImpl {
 
     pub fn force_redraw(&self) -> Result<()> {
         self.event_tx.send(crate::Event::Tick).map_err(|e| e.into())
+    }
+
+    pub fn cycle_theme(&mut self) {
+        self.current_theme = match self.current_theme {
+            crate::ui::Theme::Default => crate::ui::Theme::Hacker,
+            crate::ui::Theme::Hacker => crate::ui::Theme::Ubuntu,
+            crate::ui::Theme::Ubuntu => crate::ui::Theme::Default,
+        };
+        let theme_name = match self.current_theme {
+            crate::ui::Theme::Default => "Default",
+            crate::ui::Theme::Hacker => "Hacker",
+            crate::ui::Theme::Ubuntu => "Ubuntu",
+        };
+        self.flash = Some(format!("Theme: {}", theme_name));
+    }
+
+    pub fn set_feed_error(&mut self, feed_id: crate::rss::FeedId, error: anyhow::Error) {
+        self.feed_errors.insert(feed_id, error);
+    }
+
+    pub fn clear_feed_error(&mut self, feed_id: crate::rss::FeedId) {
+        self.feed_errors.remove(&feed_id);
+    }
+
+    #[allow(dead_code)]
+    pub fn has_feed_error(&self, feed_id: crate::rss::FeedId) -> bool {
+        self.feed_errors.contains_key(&feed_id)
     }
 }
