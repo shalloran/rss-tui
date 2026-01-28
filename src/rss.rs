@@ -974,7 +974,8 @@ mod tests {
         let feed_id = 1.into();
         let old_unread = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
         refresh_feed(&http_client, &mut conn, feed_id).unwrap();
-        let after_refresh_unread = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
+        let after_refresh_unread =
+            get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
         // refresh never adds when remote unchanged; count may drop due to retention prune
         assert!(
             after_refresh_unread.len() <= old_unread.len(),
