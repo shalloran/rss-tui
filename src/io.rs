@@ -1,4 +1,4 @@
-//! This module provides a way to asynchronously refresh feeds, using threads
+// async feed refresh
 
 use crate::ReadOptions;
 use crate::app::App;

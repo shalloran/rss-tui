@@ -1,4 +1,4 @@
-//! The main application state is managed here, in `App`.
+// main app
 
 use crate::modes::{Mode, ReadMode, Selected};
 use crate::util;
@@ -314,11 +314,11 @@ impl AppImpl {
 
         let is_wsl = wsl::is_wsl();
 
-        // initialize theme from env var or default
+        // initialize theme from env var or default to hacker
         let current_theme = match std::env::var("RSS_TUI_THEME").as_ref().map(|s| s.as_str()) {
-            Ok("hacker") => crate::ui::Theme::Hacker,
+            Ok("boring") => crate::ui::Theme::Boring,
             Ok("ubuntu") => crate::ui::Theme::Ubuntu,
-            _ => crate::ui::Theme::Default,
+            _ => crate::ui::Theme::Hacker,
         };
 
         let mut app = AppImpl {
@@ -1058,14 +1058,14 @@ impl AppImpl {
 
     pub fn cycle_theme(&mut self) {
         self.current_theme = match self.current_theme {
-            crate::ui::Theme::Default => crate::ui::Theme::Hacker,
             crate::ui::Theme::Hacker => crate::ui::Theme::Ubuntu,
-            crate::ui::Theme::Ubuntu => crate::ui::Theme::Default,
+            crate::ui::Theme::Ubuntu => crate::ui::Theme::Boring,
+            crate::ui::Theme::Boring => crate::ui::Theme::Hacker,
         };
         let theme_name = match self.current_theme {
-            crate::ui::Theme::Default => "Default",
             crate::ui::Theme::Hacker => "Hacker",
             crate::ui::Theme::Ubuntu => "Ubuntu",
+            crate::ui::Theme::Boring => "Boring",
         };
         self.flash = Some(format!("Theme: {}", theme_name));
     }

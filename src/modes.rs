@@ -1,4 +1,4 @@
-//! rss-tui is modal, and these are the modes it can be in.
+// here be modes
 
 /// what type of object is currently selected
 #[derive(Clone, Debug)]

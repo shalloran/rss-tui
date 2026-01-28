@@ -1,4 +1,4 @@
-//! Import and export OPML feed lists into/from rss-tui
+// import and export OPML of feeds
 
 use crate::{ExportOptions, ImportOptions};
 use anyhow::{Context, Result};

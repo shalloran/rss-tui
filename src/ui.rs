@@ -1,4 +1,4 @@
-//! How the UI is rendered, with the Ratatui library.
+// UI rendering with Ratatui
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -20,7 +20,7 @@ const PINK: Color = Color::Rgb(255, 150, 167);
 // theme system
 #[derive(Clone, Copy, Debug)]
 pub enum Theme {
-    Default,
+    Boring,
     Hacker,
     Ubuntu,
 }
@@ -28,7 +28,7 @@ pub enum Theme {
 impl Theme {
     pub fn unread_entry_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Yellow,
+            Theme::Boring => Color::Yellow,
             Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
             Theme::Ubuntu => Color::Rgb(255, 140, 0), // orange
         }
@@ -36,7 +36,7 @@ impl Theme {
 
     pub fn read_entry_color(&self) -> Color {
         match self {
-            Theme::Default => Color::DarkGray,
+            Theme::Boring => Color::DarkGray,
             Theme::Hacker => Color::Rgb(0, 150, 0), // darker green
             Theme::Ubuntu => Color::DarkGray,
         }
@@ -44,7 +44,7 @@ impl Theme {
 
     pub fn new_entry_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Green,
+            Theme::Boring => Color::Green,
             Theme::Hacker => Color::Cyan,
             Theme::Ubuntu => Color::Rgb(119, 41, 83), // purple
         }
@@ -52,7 +52,7 @@ impl Theme {
 
     pub fn unread_feed_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Yellow,
+            Theme::Boring => Color::Yellow,
             Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
             Theme::Ubuntu => Color::Rgb(255, 140, 0), // orange
         }
@@ -60,7 +60,7 @@ impl Theme {
 
     pub fn error_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Red,
+            Theme::Boring => Color::Red,
             Theme::Hacker => Color::Rgb(255, 0, 0), // bright red
             Theme::Ubuntu => Color::Red,
         }
@@ -68,7 +68,7 @@ impl Theme {
 
     pub fn feed_type_badge_color(&self) -> Color {
         match self {
-            Theme::Default => Color::DarkGray,
+            Theme::Boring => Color::DarkGray,
             Theme::Hacker => Color::Rgb(0, 200, 0), // medium green
             Theme::Ubuntu => Color::DarkGray,
         }
@@ -77,7 +77,7 @@ impl Theme {
     // background color for the entire UI
     pub fn background_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Reset,
+            Theme::Boring => Color::Reset,
             Theme::Hacker => Color::Black,
             Theme::Ubuntu => Color::Reset,
         }
@@ -86,7 +86,7 @@ impl Theme {
     // default text color
     pub fn text_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Reset,
+            Theme::Boring => Color::Reset,
             Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
             Theme::Ubuntu => Color::Reset,
         }
@@ -95,7 +95,7 @@ impl Theme {
     // title/header color
     pub fn title_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Cyan,
+            Theme::Boring => Color::Cyan,
             Theme::Hacker => Color::Rgb(0, 255, 255), // bright cyan
             Theme::Ubuntu => Color::Cyan,
         }
@@ -104,7 +104,7 @@ impl Theme {
     // border color
     pub fn border_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Reset,
+            Theme::Boring => Color::Reset,
             Theme::Hacker => Color::Rgb(0, 200, 0), // medium green
             Theme::Ubuntu => Color::Reset,
         }
@@ -113,7 +113,7 @@ impl Theme {
     // highlight/selection color
     pub fn highlight_color(&self) -> Color {
         match self {
-            Theme::Default => PINK,
+            Theme::Boring => PINK,
             Theme::Hacker => Color::Rgb(0, 255, 255), // bright cyan
             Theme::Ubuntu => PINK,
         }
@@ -122,7 +122,7 @@ impl Theme {
     // flash message color
     pub fn flash_color(&self) -> Color {
         match self {
-            Theme::Default => Color::Yellow,
+            Theme::Boring => Color::Yellow,
             Theme::Hacker => Color::Rgb(0, 255, 0), // bright green
             Theme::Ubuntu => Color::Yellow,
         }
@@ -409,9 +409,9 @@ fn render_mini_sparkline(data: &[u64], theme: Theme) -> Span<'static> {
 
     // use theme-appropriate color for sparkline
     let sparkline_color = match theme {
-        Theme::Default => Color::Rgb(120, 150, 160), // muted cyan-gray
-        Theme::Hacker => Color::Rgb(0, 200, 0),      // medium green
-        Theme::Ubuntu => Color::Rgb(120, 150, 160),  // muted cyan-gray
+        Theme::Boring => Color::Rgb(120, 150, 160), // muted cyan-gray
+        Theme::Hacker => Color::Rgb(0, 200, 0),     // medium green
+        Theme::Ubuntu => Color::Rgb(120, 150, 160), // muted cyan-gray
     };
     Span::styled(
         sparkline_text,
@@ -696,7 +696,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         Mode::Normal => {
             text.push_str("1/2/3 - Unread/All/Read tabs\n");
             text.push_str("i - edit mode; q - exit\n");
-            text.push_str("t - cycle theme (default/hacker/ubuntu)\n");
+            text.push_str("t - cycle theme (hacker/ubuntu/boring)\n");
             if app.pending_deletion.is_some() {
                 text.push_str("d - confirm deletion; n - cancel\n");
             }

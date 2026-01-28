@@ -1,5 +1,3 @@
-//! miscellaneous functions that feel like they don't fit anywhere else
-
 use ratatui::widgets::ListState;
 
 #[derive(Debug)]
@@ -59,6 +57,7 @@ impl<T> From<Vec<T>> for StatefulList<T> {
     }
 }
 
+// work around for clipboard access in WSL
 #[cfg(target_os = "linux")]
 pub(crate) fn set_wsl_clipboard_contents(s: &str) -> anyhow::Result<()> {
     use std::{

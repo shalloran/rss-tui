@@ -1,5 +1,4 @@
-//! The functions and datatypes in this module all for the retrieval and storage
-//! of RSS/Atom feeds in rss-tui's SQLite database.
+// retrieving and storing (RSS and Atom) feeds in sqlite db
 
 use crate::modes::ReadMode;
 use anyhow::{Context, Result, bail};
@@ -12,6 +11,9 @@ use rusqlite::types::{FromSql, ToSqlOutput};
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::str::FromStr;
+
+/// entries older than this are pruned on feed refresh to limit db size
+const ENTRY_RETENTION_DAYS: u32 = 365;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EntryId(i64);
@@ -414,6 +416,19 @@ fn fetch_feed(
     }
 }
 
+fn prune_old_entries_for_feed(
+    tx: &rusqlite::Transaction,
+    feed_id: FeedId,
+    max_age_days: u32,
+) -> Result<()> {
+    let cutoff = Utc::now() - chrono::Duration::days(max_age_days as i64);
+    tx.execute(
+        "DELETE FROM entries WHERE feed_id = ?1 AND COALESCE(pub_date, inserted_at) < ?2",
+        params![feed_id, cutoff],
+    )?;
+    Ok(())
+}
+
 /// fetches the feed and stores the new entries
 /// uses the link as the uniqueness key.
 /// TODO hash the content to see if anything changed, and update that way.
@@ -462,10 +477,15 @@ pub fn refresh_feed(
             add_entries_to_feed(tx, feed_id, &items_to_add)?;
             update_feed_refreshed_at(tx, feed_id)?;
             update_feed_etag(tx, feed_id, remote_feed.feed.latest_etag.clone())?;
+            prune_old_entries_for_feed(tx, feed_id, ENTRY_RETENTION_DAYS)?;
             Ok(())
         })?;
     } else {
-        in_transaction(conn, |tx| update_feed_refreshed_at(tx, feed_id))?;
+        in_transaction(conn, |tx| {
+            update_feed_refreshed_at(tx, feed_id)?;
+            prune_old_entries_for_feed(tx, feed_id, ENTRY_RETENTION_DAYS)?;
+            Ok(())
+        })?;
     }
 
     Ok(())
@@ -952,13 +972,18 @@ mod tests {
         initialize_db(&mut conn).unwrap();
         subscribe_to_feed(&http_client, &mut conn, ZCT).unwrap();
         let feed_id = 1.into();
-        let old_entries = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
+        let old_unread = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
         refresh_feed(&http_client, &mut conn, feed_id).unwrap();
+        let after_refresh_unread = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
+        // refresh never adds when remote unchanged; count may drop due to retention prune
+        assert!(
+            after_refresh_unread.len() <= old_unread.len(),
+            "refresh must not add items"
+        );
         let e = get_entry_meta(&conn, 1.into()).unwrap();
         e.mark_as_read(&conn).unwrap();
-        let new_entries = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
-
-        assert_eq!(new_entries.len(), old_entries.len() - 1);
+        let new_unread = get_entries_metas(&conn, &ReadMode::ShowUnread, feed_id).unwrap();
+        assert_eq!(new_unread.len(), after_refresh_unread.len() - 1);
     }
 
     #[test]
