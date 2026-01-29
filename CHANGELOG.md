@@ -2,6 +2,16 @@
 
 We welcome contributions to rss-tui, see README.md for more information.
 
+## 0.6.6
+commit message: handle large feeds and improve error/reporting ux, fixes #1
+
+- stream feed bodies with a 4mb cap instead of using ureq into_string
+- add url validation/normalization before subscribing to feeds
+- surface clearer network/http/parse errors with actionable guidance
+- show theme toggle helper for `t` in all help views
+- keep formatting and clippy clean to match ci expectations
+- **Note:** Toggle themes with `t` if you don't like the new default, and also to prevent the sqlite db from getting too large, I've capped the history for each feed at 365 days.
+
 ## 0.6.2, 0.6.3
 
 - Bumped versions for minor edits, github actions, format, clippy.

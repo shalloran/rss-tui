@@ -179,9 +179,7 @@ remove the `"bundled"` feature from the `rusqlite` dependency and recompile `rss
 
 ## contributing
 
-The original project welcomes contributions. If you have an idea for something you would like to contribute to the original, open an issue on [ckampfe/russ](https://github.com/ckampfe/russ) and they can address it!
-
-For this fork, I'm happy to consider pull requests, but keep in mind this is primarily for my own use. If you want a feature that's more broadly useful, consider contributing to the upstream project instead.
+The original project welcomes contributions. If you have an idea for something you would like to contribute to the original, open an issue on [ckampfe/russ](https://github.com/ckampfe/russ) and they can address it. For this fork, I'm happy to consider pull requests, and fix bugs, but keep in mind this is primarily for my own use. If you want a feature that's more broadly useful, please consider contributing to the upstream project as well.
 
 ## license
 

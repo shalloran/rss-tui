@@ -99,12 +99,18 @@ pub(crate) fn io_loop(
                 app.set_flash("Subscribing to feed...".to_string());
                 app.force_redraw()?;
 
+                let normalized_url =
+                    match crate::rss::validate_and_normalize_feed_url(&feed_subscription_input) {
+                        Ok(url) => url,
+                        Err(e) => {
+                            app.push_error_flash(e);
+                            continue;
+                        }
+                    };
+
                 let mut conn = connection_pool.get()?;
-                let r = crate::rss::subscribe_to_feed(
-                    &app.http_client(),
-                    &mut conn,
-                    &feed_subscription_input,
-                );
+                let r =
+                    crate::rss::subscribe_to_feed(&app.http_client(), &mut conn, &normalized_url);
 
                 if let Err(e) = r {
                     app.push_error_flash(e);

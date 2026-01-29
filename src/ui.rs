@@ -696,7 +696,6 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         Mode::Normal => {
             text.push_str("1/2/3 - Unread/All/Read tabs\n");
             text.push_str("i - edit mode; q - exit\n");
-            text.push_str("t - cycle theme (hacker/ubuntu/boring)\n");
             if app.pending_deletion.is_some() {
                 text.push_str("d - confirm deletion; n - cancel\n");
             }
@@ -710,6 +709,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             text.push_str("esc - normal mode\n")
         }
     }
+    text.push_str("t - cycle theme (hacker/ubuntu/boring)\n");
 
     text.push_str("? - show/hide help");
 

@@ -5,11 +5,14 @@ use anyhow::{Context, Result, bail};
 use atom_syndication as atom;
 use chrono::prelude::{DateTime, Utc};
 use html_escape::decode_html_entities_to_string;
+use quick_xml::Reader;
+use quick_xml::events::Event;
 use rss::Channel;
 use rusqlite::params;
 use rusqlite::types::{FromSql, ToSqlOutput};
 use std::collections::HashSet;
 use std::fmt::Display;
+use std::io::Read;
 use std::str::FromStr;
 
 /// entries older than this are pruned on feed refresh to limit db size
@@ -147,6 +150,7 @@ struct IncomingFeed {
 /// This exists:
 /// 1. So we can validate an incoming Atom/RSS feed entry
 /// 2. So we can insert it into the database
+#[derive(Clone)]
 struct IncomingEntry {
     title: Option<String>,
     author: Option<String>,
@@ -264,16 +268,220 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
     diligent_date_parser::parse_date(s).map(|dt| dt.with_timezone(&Utc))
 }
 
+// streaming parser for feeds using quick-xml
+fn parse_feed_streaming<R: Read>(mut reader: R, url: &str) -> Result<FeedAndEntries> {
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf)?;
+
+    let content = String::from_utf8(buf)
+        .map_err(|e| anyhow::anyhow!("feed body is not valid utf-8: {}", e))?;
+
+    let mut xml_reader = Reader::from_str(&content);
+    xml_reader.config_mut().trim_text(true);
+
+    let mut feed_type: Option<FeedKind> = None;
+    let mut feed_title: Option<String> = None;
+    let mut feed_link: Option<String> = None;
+    let mut entries = Vec::new();
+
+    let mut buf2 = Vec::new();
+    let mut in_item = false;
+    let mut in_entry = false;
+
+    // temporary storage for current entry/item
+    let mut current_entry = IncomingEntry {
+        title: None,
+        author: None,
+        pub_date: None,
+        description: None,
+        content: None,
+        link: None,
+    };
+    let mut current_text = String::new();
+    let mut current_link_href: Option<String> = None;
+
+    loop {
+        match xml_reader.read_event_into(&mut buf2) {
+            Ok(Event::Start(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+
+                // detect feed type
+                if feed_type.is_none() {
+                    match name.as_str() {
+                        "feed" => feed_type = Some(FeedKind::Atom),
+                        "rss" | "rdf:RDF" => feed_type = Some(FeedKind::Rss),
+                        _ => {}
+                    }
+                }
+
+                match name.as_str() {
+                    "item" => {
+                        in_item = true;
+                        current_entry = IncomingEntry {
+                            title: None,
+                            author: None,
+                            pub_date: None,
+                            description: None,
+                            content: None,
+                            link: None,
+                        };
+                    }
+                    "entry" => {
+                        in_entry = true;
+                        current_entry = IncomingEntry {
+                            title: None,
+                            author: None,
+                            pub_date: None,
+                            description: None,
+                            content: None,
+                            link: None,
+                        };
+                    }
+                    "link" => {
+                        // check for href attribute (atom feeds)
+                        current_link_href = None;
+                        for attr in e.attributes().flatten() {
+                            let key = String::from_utf8_lossy(attr.key.as_ref());
+                            if key == "href" {
+                                current_link_href =
+                                    String::from_utf8_lossy(&attr.value).parse().ok();
+                                break;
+                            }
+                        }
+                        current_text.clear();
+                    }
+                    "title" | "description" | "content" | "summary" | "author" | "name"
+                    | "pubDate" | "published" | "updated" | "dc:date" => {
+                        current_text.clear();
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(e)) => {
+                let text = e.unescape().unwrap_or_default();
+                current_text.push_str(&text);
+            }
+            Ok(Event::CData(e)) => {
+                let text = String::from_utf8_lossy(&e);
+                current_text.push_str(&text);
+            }
+            Ok(Event::End(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+
+                match name.as_str() {
+                    "item" => {
+                        if in_item {
+                            entries.push(current_entry.clone());
+                            in_item = false;
+                        }
+                    }
+                    "entry" => {
+                        if in_entry {
+                            entries.push(current_entry.clone());
+                            in_entry = false;
+                        }
+                    }
+                    "title" => {
+                        if !current_text.is_empty() {
+                            let mut decoded = String::new();
+                            decode_html_entities_to_string(&current_text, &mut decoded);
+                            if in_item || in_entry {
+                                current_entry.title = Some(decoded);
+                            } else if feed_title.is_none() {
+                                feed_title = Some(decoded);
+                            }
+                        }
+                        current_text.clear();
+                    }
+                    "link" => {
+                        if in_item || in_entry {
+                            // atom feeds use href attribute, rss feeds use text content
+                            if let Some(href) = current_link_href.take() {
+                                current_entry.link = Some(href);
+                            } else if !current_text.is_empty() {
+                                current_entry.link = Some(current_text.clone());
+                            }
+                        } else if feed_link.is_none() && !current_text.is_empty() {
+                            feed_link = Some(current_text.clone());
+                        }
+                        current_text.clear();
+                    }
+                    "description" => {
+                        if in_item && !current_text.is_empty() {
+                            let mut decoded = String::new();
+                            decode_html_entities_to_string(&current_text, &mut decoded);
+                            current_entry.description = Some(decoded);
+                        }
+                        current_text.clear();
+                    }
+                    "content" => {
+                        if (in_item || in_entry) && !current_text.is_empty() {
+                            let mut decoded = String::new();
+                            decode_html_entities_to_string(&current_text, &mut decoded);
+                            current_entry.content = Some(decoded);
+                        }
+                        current_text.clear();
+                    }
+                    "summary" => {
+                        if in_entry && current_entry.content.is_none() && !current_text.is_empty() {
+                            let mut decoded = String::new();
+                            decode_html_entities_to_string(&current_text, &mut decoded);
+                            current_entry.content = Some(decoded);
+                        }
+                        current_text.clear();
+                    }
+                    "author" | "name" => {
+                        if (in_item || in_entry)
+                            && current_entry.author.is_none()
+                            && !current_text.is_empty()
+                        {
+                            let mut decoded = String::new();
+                            decode_html_entities_to_string(&current_text, &mut decoded);
+                            current_entry.author = Some(decoded);
+                        }
+                        current_text.clear();
+                    }
+                    "pubDate" | "published" | "updated" | "dc:date" => {
+                        if (in_item || in_entry)
+                            && current_entry.pub_date.is_none()
+                            && !current_text.is_empty()
+                        {
+                            current_entry.pub_date = parse_datetime(&current_text);
+                        }
+                        current_text.clear();
+                    }
+                    _ => {
+                        current_text.clear();
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(anyhow::anyhow!("xml parsing error: {}", e)),
+            _ => {}
+        }
+        buf2.clear();
+    }
+
+    let feed_kind = feed_type.ok_or_else(|| anyhow::anyhow!("could not determine feed type"))?;
+
+    Ok(FeedAndEntries {
+        feed: IncomingFeed {
+            title: feed_title,
+            feed_link: Some(url.to_string()),
+            link: feed_link,
+            feed_kind,
+            latest_etag: None,
+        },
+        entries,
+    })
+}
+
 struct FeedAndEntries {
     pub feed: IncomingFeed,
     pub entries: Vec<IncomingEntry>,
 }
 
 impl FeedAndEntries {
-    fn set_feed_link(&mut self, url: &str) {
-        self.feed.feed_link = Some(url.to_owned());
-    }
-
     fn set_latest_etag(&mut self, etag: Option<String>) {
         self.feed.latest_etag = etag;
     }
@@ -326,6 +534,34 @@ impl FromStr for FeedAndEntries {
     }
 }
 
+pub fn validate_and_normalize_feed_url(raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+
+    if trimmed.is_empty() {
+        bail!("feed url cannot be empty");
+    }
+
+    // if no scheme, assume https
+    let candidate = if !trimmed.contains("://") {
+        format!("https://{}", trimmed)
+    } else {
+        trimmed.to_string()
+    };
+
+    let url =
+        url::Url::parse(&candidate).map_err(|e| anyhow::anyhow!("invalid feed url: {}", e))?;
+
+    match url.scheme() {
+        "http" | "https" => Ok(url.to_string()),
+        other => {
+            bail!(
+                "unsupported url scheme '{}', only http and https are allowed",
+                other
+            );
+        }
+    }
+}
+
 pub fn subscribe_to_feed(
     http_client: &ureq::Agent,
     conn: &mut rusqlite::Connection,
@@ -370,6 +606,44 @@ enum FeedResponse {
     CacheHit,
 }
 
+fn http_status_error_message(status: u16, url: &str) -> String {
+    match status {
+        400 => format!(
+            "bad request (400) fetching feed {}. the server rejected the request - check the url",
+            url
+        ),
+        401 => format!(
+            "unauthorized (401) fetching feed {}. authentication may be required",
+            url
+        ),
+        403 => format!(
+            "forbidden (403) fetching feed {}. access denied - the server refused the request",
+            url
+        ),
+        404 => format!(
+            "not found (404) fetching feed {}. the feed url may be incorrect or the feed may have been removed",
+            url
+        ),
+        408 => format!(
+            "request timeout (408) fetching feed {}. the server took too long to respond",
+            url
+        ),
+        429 => format!(
+            "too many requests (429) fetching feed {}. rate limited - wait a moment and try again",
+            url
+        ),
+        500..=599 => format!(
+            "server error ({}) fetching feed {}. this could be temporary - check the site in a browser and try again later",
+            status, url
+        ),
+        300..=399 => format!(
+            "redirect error ({}). the server returned an unexpected redirect for feed {}",
+            status, url
+        ),
+        _ => format!("unexpected status code {} fetching feed {}", status, url),
+    }
+}
+
 fn fetch_feed(
     http_client: &ureq::Agent,
     url: &str,
@@ -383,9 +657,16 @@ fn fetch_feed(
         request
     };
 
-    let response = request.call()?;
+    let response = request.call().with_context(|| {
+        format!(
+            "network error fetching feed {}. check your internet connection and verify the url is accessible",
+            url
+        )
+    })?;
 
-    match response.status() {
+    let status = response.status();
+
+    match status {
         // the etags did not match, it is a new feed file
         200 => {
             let header_names = response.headers_names();
@@ -398,20 +679,24 @@ fn fetch_feed(
                 .and_then(|etag_header| response.header(etag_header))
                 .map(|etag| etag.to_owned());
 
-            let content = response.into_string()?;
+            let reader = response.into_reader();
 
-            let mut feed_and_entries = FeedAndEntries::from_str(&content)?;
+            let mut feed_and_entries = parse_feed_streaming(reader, url).with_context(|| {
+                format!(
+                    "failed to parse feed from {}. the response is not valid rss or atom xml",
+                    url
+                )
+            })?;
 
             feed_and_entries.set_latest_etag(etag);
-
-            feed_and_entries.set_feed_link(url);
 
             Ok(FeedResponse::CacheMiss(feed_and_entries))
         }
         // the etags match, it is the same feed we already have
         304 => Ok(FeedResponse::CacheHit),
-        _ => Err(anyhow::anyhow!(
-            "received unexpected status code fetching feed {response:?}"
+        status => Err(anyhow::anyhow!(
+            "{}",
+            http_status_error_message(status, url)
         )),
     }
 }
@@ -961,6 +1246,28 @@ mod tests {
             .unwrap();
 
         assert!(count > 50)
+    }
+
+    #[test]
+    fn validate_and_normalize_feed_url_works_for_https() {
+        let url = validate_and_normalize_feed_url("https://example.com/feed").unwrap();
+        assert_eq!(url, "https://example.com/feed");
+    }
+
+    #[test]
+    fn validate_and_normalize_feed_url_adds_https_when_missing() {
+        let url = validate_and_normalize_feed_url("example.com/feed").unwrap();
+        assert!(url.starts_with("https://"));
+    }
+
+    #[test]
+    fn validate_and_normalize_feed_url_rejects_empty() {
+        let err = validate_and_normalize_feed_url("  ").unwrap_err();
+        assert!(
+            err.to_string()
+                .to_lowercase()
+                .contains("feed url cannot be empty")
+        );
     }
 
     #[test]

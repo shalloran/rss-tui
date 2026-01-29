@@ -30,6 +30,7 @@ html2text = "0.15"
 html-escape = "0.2.13"
 num_cpus = "1.16"
 opml = "1.1"
+quick-xml = { version = "0.36", features = ["encoding"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.31"
 rss = { version = "2.0", default-features = false }
@@ -39,6 +40,7 @@ ureq = "2.12"
 urlencoding = "2.1"
 webbrowser = "1"
 wsl = "0.1"
+url = "2"
 
 [profile.release]
 codegen-units = 1
