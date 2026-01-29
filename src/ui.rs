@@ -1,7 +1,7 @@
 // UI rendering with Ratatui
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
@@ -127,6 +127,14 @@ impl Theme {
             Theme::Ubuntu => Color::Yellow,
         }
     }
+
+    // command bar text (hacker: black on green bar for contrast)
+    pub fn command_bar_text_color(&self) -> Color {
+        match self {
+            Theme::Hacker => Color::Black,
+            _ => self.text_color(),
+        }
+    }
 }
 
 // symbols configuration
@@ -218,11 +226,32 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
 }
 
-pub fn predraw(f: &Frame) -> Rc<[Rect]> {
-    Layout::default()
+// command bar: 1 line normally, 2 when text wraps on narrow terminals
+fn command_bar_height(f: &Frame, app: &AppImpl) -> u16 {
+    let line = command_bar_line(app);
+    if line.len() as u16 <= f.area().width {
+        1
+    } else {
+        2
+    }
+}
+
+pub fn predraw(f: &Frame, app: &AppImpl) -> Rc<[Rect]> {
+    let bar_height = command_bar_height(f, app);
+    let vertical = Layout::default()
+        .constraints([Constraint::Min(0), Constraint::Length(bar_height)].as_ref())
+        .direction(Direction::Vertical)
+        .split(f.area());
+    let main_area = vertical[0];
+    let bottom_bar = vertical[1];
+    let horizontal = Layout::default()
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
         .direction(Direction::Horizontal)
-        .split(f.area())
+        .split(main_area);
+    // [left, right, command_bar]
+    let mut out = horizontal.to_vec();
+    out.push(bottom_bar);
+    out.into()
 }
 
 pub fn draw(f: &mut Frame, chunks: Rc<[Rect]>, app: &mut AppImpl) {
@@ -236,6 +265,10 @@ pub fn draw(f: &mut Frame, chunks: Rc<[Rect]>, app: &mut AppImpl) {
             draw_entry(f, chunks[1], app);
         }
         Selected::None => draw_entries(f, chunks[1], app),
+    }
+
+    if chunks.len() >= 3 {
+        draw_command_bar(f, chunks[2], app);
     }
 }
 
@@ -662,6 +695,87 @@ fn draw_feed_info(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
+}
+
+/// format one keybinding as vim-style "[ key ] action"
+fn cmd(key: &str, action: &str) -> String {
+    format!("[ {} ] {}", key, action)
+}
+
+/// compact vim-style keybinding summary for the bottom bar (context-aware)
+fn command_bar_line(app: &AppImpl) -> String {
+    let mut parts = Vec::new();
+    match app.selected {
+        Selected::Feeds => {
+            parts.push(cmd("r", "ref"));
+            parts.push(cmd("x", "all"));
+            parts.push(cmd("c", "copy"));
+            parts.push(cmd("o", "open"));
+            if app.mode == Mode::Normal {
+                parts.push(cmd("d", "del"));
+                parts.push(cmd("E", "opml"));
+                parts.push(cmd("e/i", "edit"));
+            }
+        }
+        Selected::Entry(_) | Selected::Entries => {
+            parts.push(cmd("r", "read"));
+            parts.push(cmd("a", "tabs"));
+            parts.push(cmd("c", "copy"));
+            parts.push(cmd("o", "open"));
+            if app.mode == Mode::Normal {
+                parts.push(cmd("e", "mail"));
+                parts.push(cmd("E", "opml"));
+            }
+        }
+        _ => {
+            parts.push(cmd("r", "read"));
+            parts.push(cmd("a", "tabs"));
+            parts.push(cmd("c", "copy"));
+            parts.push(cmd("o", "open"));
+            if app.mode == Mode::Normal {
+                parts.push(cmd("E", "opml"));
+            }
+        }
+    }
+    match app.mode {
+        Mode::Normal => {
+            parts.push(cmd("1/2/3", "tabs"));
+            parts.push(cmd("i", "edit"));
+            parts.push(cmd("q", "quit"));
+            if app.pending_deletion.is_some() {
+                parts.push(cmd("d", "confirm"));
+                parts.push(cmd("n", "cancel"));
+            }
+        }
+        Mode::Editing => {
+            if app.pending_rename.is_some() {
+                parts.push(cmd("R", "rename"));
+                parts.push(cmd("enter", "confirm"));
+            } else {
+                parts.push(cmd("R", "rename"));
+                parts.push(cmd("enter", "fetch"));
+                parts.push(cmd("del", "del"));
+            }
+            parts.push(cmd("esc", "normal"));
+        }
+    }
+    parts.push(cmd("t", "theme"));
+    parts.push(cmd("?", "help"));
+    parts.join(" ")
+}
+
+fn draw_command_bar(f: &mut Frame, area: Rect, app: &mut AppImpl) {
+    let theme = get_theme(app);
+    let line = command_bar_line(app);
+    let bar = Paragraph::new(Text::from(line.as_str()))
+        .style(
+            Style::default()
+                .fg(theme.command_bar_text_color())
+                .bg(theme.border_color()),
+        )
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+    f.render_widget(bar, area);
 }
 
 fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {

@@ -86,11 +86,11 @@ impl App {
         let mut inner = self.inner.lock().unwrap();
 
         terminal.draw(|f| {
-            let chunks = crate::ui::predraw(f);
+            let chunks = crate::ui::predraw(f, &inner);
 
             assert!(
-                chunks.len() >= 2,
-                "There must be at least two chunks in order to draw two columns"
+                chunks.len() >= 3,
+                "Layout must provide left, right, and command bar chunks"
             );
 
             let new_width = chunks[1].width;
