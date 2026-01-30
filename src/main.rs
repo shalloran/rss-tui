@@ -315,6 +315,7 @@ enum Action {
     SelectAndShowCurrentEntry,
     ToggleReadStatus,
     CycleTheme,
+    ShowCombinedUnread,
 }
 
 fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
@@ -347,7 +348,7 @@ fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
                         Some(Action::PageDown)
                     }
                     (KeyCode::Enter, _) => match app.selected() {
-                        Selected::Entries | Selected::Entry(_) => {
+                        Selected::Entries | Selected::Entry(_) | Selected::CombinedUnread => {
                             if app.has_entries() && app.has_current_entry() {
                                 Some(Action::SelectAndShowCurrentEntry)
                             } else {
@@ -378,6 +379,7 @@ fn get_action(app: &App, event: Event<KeyEvent>) -> Option<Action> {
                     (KeyCode::Char('2'), _) => Some(Action::SetReadMode(modes::ReadMode::All)),
                     (KeyCode::Char('3'), _) => Some(Action::SetReadMode(modes::ReadMode::ShowRead)),
                     (KeyCode::Char('t'), _) => Some(Action::CycleTheme),
+                    (KeyCode::Char('A'), _) => Some(Action::ShowCombinedUnread),
                     _ => None,
                 }
             }
@@ -453,6 +455,7 @@ fn update(app: &mut App, action: Action) -> Result<()> {
         Action::ClearErrorFlash => app.clear_error_flash(),
         Action::SelectAndShowCurrentEntry => app.select_and_show_current_entry()?,
         Action::CycleTheme => app.cycle_theme(),
+        Action::ShowCombinedUnread => app.show_combined_unread()?,
     };
 
     Ok(())

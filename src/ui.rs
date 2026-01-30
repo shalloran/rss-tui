@@ -13,7 +13,9 @@ use std::rc::Rc;
 use crate::app::AppImpl;
 use crate::modes::{Mode, ReadMode, Selected};
 use crate::rss::EntryMetadata;
+use crate::util::sanitize_for_display;
 use chrono::Utc;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const PINK: Color = Color::Rgb(255, 150, 167);
 
@@ -173,7 +175,7 @@ fn get_symbols() -> Symbols {
     Symbols::default()
 }
 
-// wrap text to fit within a given width, splitting on word boundaries when possible
+// wrap text to fit within a given display width, splitting on word boundaries when possible
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![];
@@ -195,20 +197,26 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
             format!("{} {}", current_line, word)
         };
 
-        if test_line.len() <= width {
+        if test_line.width() <= width {
             current_line = test_line;
         } else {
             if !current_line.is_empty() {
                 lines.push(current_line);
             }
-            // if a single word is longer than width, split it
-            if word.len() > width {
-                let mut remaining = word;
-                while remaining.len() > width {
-                    lines.push(remaining[..width].to_string());
-                    remaining = &remaining[width..];
+            // split long word by display width at char boundaries
+            if word.width() > width {
+                let mut segment = String::new();
+                let mut seg_width = 0usize;
+                for c in word.chars() {
+                    let cw = c.width().unwrap_or(0);
+                    if seg_width + cw > width && !segment.is_empty() {
+                        lines.push(std::mem::take(&mut segment));
+                        seg_width = 0;
+                    }
+                    seg_width += cw;
+                    segment.push(c);
                 }
-                current_line = remaining.to_string();
+                current_line = segment;
             } else {
                 current_line = word.to_string();
             }
@@ -229,7 +237,7 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 // command bar: 1 line normally, 2 when text wraps on narrow terminals
 fn command_bar_height(f: &Frame, app: &AppImpl) -> u16 {
     let line = command_bar_line(app);
-    if line.len() as u16 <= f.area().width {
+    if line.width() as u16 <= f.area().width {
         1
     } else {
         2
@@ -260,6 +268,9 @@ pub fn draw(f: &mut Frame, chunks: Rc<[Rect]>, app: &mut AppImpl) {
     match &app.selected {
         Selected::Feeds | Selected::Entries => {
             draw_entries(f, chunks[1], app);
+        }
+        Selected::CombinedUnread => {
+            draw_combined_entries(f, chunks[1], app);
         }
         Selected::Entry(_entry_meta) => {
             draw_entry(f, chunks[1], app);
@@ -298,7 +309,7 @@ fn draw_info_column(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         // INFO
         match &app.selected {
             Selected::Entry(entry) => draw_entry_info(f, chunks[1], entry, app),
-            Selected::Entries => {
+            Selected::Entries | Selected::CombinedUnread => {
                 if let Some(entry_meta) = &app.current_entry_meta {
                     draw_entry_info(f, chunks[1], entry_meta, app);
                 } else {
@@ -362,7 +373,7 @@ fn draw_entry_info(f: &mut Frame, area: Rect, entry_meta: &EntryMetadata, app: &
     let mut text = String::new();
     if let Some(item) = &entry_meta.title {
         text.push_str("Title: ");
-        text.push_str(item.to_string().as_str());
+        text.push_str(&sanitize_for_display(item));
         text.push('\n');
     };
 
@@ -464,7 +475,7 @@ fn draw_feeds(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .items
         .iter()
         .map(|feed| {
-            let feed_title = feed.title.as_deref().unwrap_or("No title");
+            let feed_title = sanitize_for_display(feed.title.as_deref().unwrap_or("No title"));
 
             // get unread count for this feed
             let unread_count = crate::rss::count_unread_entries(&app.conn, feed.id).unwrap_or(0);
@@ -614,7 +625,7 @@ fn draw_feed_info(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         .and_then(|feed| feed.title.as_ref())
     {
         text.push_str("Title: ");
-        text.push_str(item);
+        text.push_str(&sanitize_for_display(item));
         text.push('\n');
     }
 
@@ -709,6 +720,7 @@ fn command_bar_line(app: &AppImpl) -> String {
         Selected::Feeds => {
             parts.push(cmd("r", "ref"));
             parts.push(cmd("x", "all"));
+            parts.push(cmd("A", "all unread"));
             parts.push(cmd("c", "copy"));
             parts.push(cmd("o", "open"));
             if app.mode == Mode::Normal {
@@ -717,7 +729,7 @@ fn command_bar_line(app: &AppImpl) -> String {
                 parts.push(cmd("e/i", "edit"));
             }
         }
-        Selected::Entry(_) | Selected::Entries => {
+        Selected::Entry(_) | Selected::Entries | Selected::CombinedUnread => {
             parts.push(cmd("r", "read"));
             parts.push(cmd("a", "tabs"));
             parts.push(cmd("c", "copy"));
@@ -783,11 +795,20 @@ fn draw_help(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     match app.selected {
         Selected::Feeds => {
             text.push_str("r - refresh selected feed; x - refresh all feeds\n");
+            text.push_str("A - combined unread (all feeds in one list)\n");
             text.push_str("c - copy link; o - open link in browser\n");
             if app.mode == Mode::Normal {
                 text.push_str("d - delete feed (with confirmation)\n");
                 text.push_str("E - export feeds to OPML\n");
                 text.push_str("e/i - edit mode\n");
+            }
+        }
+        Selected::CombinedUnread => {
+            text.push_str("combined view: all unread entries from every feed\n");
+            text.push_str("r - mark entry read; a - cycle tabs\n");
+            text.push_str("c - copy link; o - open link in browser\n");
+            if app.mode == Mode::Normal {
+                text.push_str("e - email article; E - export OPML\n");
             }
         }
         Selected::Entry(_) => {
@@ -955,10 +976,8 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
                 ));
             }
 
-            let title_text = entry
-                .title
-                .as_ref()
-                .map_or_else(|| "No title".to_string(), |t| t.to_string());
+            let title_text =
+                sanitize_for_display(entry.title.as_ref().map_or("No title", |t| t.as_str()));
 
             // recency indicator (new entries <24h old)
             let is_new = if let Some(pub_date) = &entry.pub_date {
@@ -971,7 +990,7 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
 
             if is_new {
                 // wrap the title text to fit the available width
-                let wrapped_lines = wrap_text(&title_text, available_width);
+                let wrapped_lines = wrap_text(title_text.as_str(), available_width);
 
                 // create a list item with multiple lines if needed
                 if wrapped_lines.len() == 1 {
@@ -1001,7 +1020,7 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
                 }
             } else {
                 // wrap the title text to fit the available width
-                let wrapped_lines = wrap_text(&title_text, available_width);
+                let wrapped_lines = wrap_text(title_text.as_str(), available_width);
 
                 // create a list item with multiple lines if needed
                 if wrapped_lines.len() == 1 {
@@ -1025,13 +1044,12 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         })
         .collect::<Vec<ListItem>>();
 
-    let default_title = "Entries".to_string();
-
     let title = app
         .current_feed
         .as_ref()
         .and_then(|feed| feed.title.as_ref())
-        .unwrap_or(&default_title);
+        .map(|t| sanitize_for_display(t.as_str()))
+        .unwrap_or_else(|| "Entries".to_string());
 
     let entries_titles = List::new(entries).block(
         Block::default()
@@ -1039,7 +1057,7 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
             .border_style(Style::default().fg(theme.border_color()))
             .style(Style::default().bg(theme.background_color()))
             .title(Span::styled(
-                title,
+                title.as_str(),
                 Style::default()
                     .fg(theme.title_color())
                     .bg(theme.background_color())
@@ -1096,6 +1114,117 @@ fn draw_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     }
 }
 
+fn draw_combined_entries(f: &mut Frame, area: Rect, app: &mut AppImpl) {
+    let chunks = Layout::default()
+        .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
+        .direction(Direction::Vertical)
+        .split(area);
+
+    draw_tabs(f, chunks[0], app);
+    let entries_area = chunks[1];
+
+    let theme = get_theme(app);
+    let symbols = get_symbols();
+    let indicator_width = 4;
+    let available_width = if entries_area.width > (4 + indicator_width as u16) {
+        (entries_area.width as usize - 4 - indicator_width).max(1)
+    } else {
+        1
+    };
+
+    let entries: Vec<ListItem> = app
+        .combined_entries
+        .items
+        .iter()
+        .map(|(feed_name, entry)| {
+            let mut spans = Vec::new();
+            spans.push(Span::styled(
+                symbols.unread_entry,
+                Style::default().fg(theme.unread_entry_color()),
+            ));
+            let line_prefix = format!("[{}]: ", sanitize_for_display(feed_name.as_str()));
+            let title_text =
+                sanitize_for_display(entry.title.as_ref().map_or("No title", |t| t.as_str()));
+            let full_text = format!("{}{}", line_prefix, title_text);
+            let wrapped_lines = wrap_text(&full_text, available_width);
+            if wrapped_lines.len() == 1 {
+                spans.push(Span::raw(wrapped_lines[0].clone()));
+                ListItem::new(Line::from(spans))
+            } else {
+                let mut lines: Vec<Line> = Vec::new();
+                for (i, line) in wrapped_lines.iter().enumerate() {
+                    if i == 0 {
+                        let mut first_line_spans = spans.clone();
+                        first_line_spans.push(Span::raw(line.clone()));
+                        lines.push(Line::from(first_line_spans));
+                    } else {
+                        lines.push(Line::from(Span::raw(line.clone())));
+                    }
+                }
+                ListItem::new(Text::from(lines))
+            }
+        })
+        .collect();
+
+    let list = List::new(entries).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_color()))
+            .style(Style::default().bg(theme.background_color()))
+            .title(Span::styled(
+                format!("All unread [{}]", app.combined_entries.items.len()),
+                Style::default()
+                    .fg(theme.title_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+    );
+
+    let list = match app.selected {
+        Selected::CombinedUnread => list
+            .highlight_style(
+                Style::default()
+                    .fg(theme.highlight_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        _ => list,
+    };
+
+    if !app.error_flash.is_empty() {
+        let error_chunks = Layout::default()
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+            .direction(Direction::Vertical)
+            .split(entries_area);
+        let error_text = error_text(&app.error_flash);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_color()))
+            .style(Style::default().bg(theme.background_color()))
+            .title(Span::styled(
+                "Error - press 'q' to close",
+                Style::default()
+                    .fg(theme.title_color())
+                    .bg(theme.background_color())
+                    .add_modifier(Modifier::BOLD),
+            ));
+        let error_widget = Paragraph::new(error_text)
+            .block(block)
+            .style(
+                Style::default()
+                    .fg(theme.error_color())
+                    .bg(theme.background_color()),
+            )
+            .wrap(Wrap { trim: false })
+            .scroll((0, 0));
+        f.render_stateful_widget(list, error_chunks[0], &mut app.combined_entries.state);
+        f.render_widget(error_widget, error_chunks[1]);
+    } else {
+        f.render_stateful_widget(list, entries_area, &mut app.combined_entries.state);
+    }
+}
+
 fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
     // Split area for tabs and entry content
     let main_chunks = Layout::default()
@@ -1114,19 +1243,19 @@ fn draw_entry(f: &mut Frame, area: Rect, app: &mut AppImpl) {
         panic!("draw_entry should only be called when app.selected was Selected::Entry")
     };
 
-    let entry_title = entry_meta.title.as_deref().unwrap_or("No entry title");
-
-    let feed_title = app
-        .current_feed
-        .as_ref()
-        .and_then(|feed| feed.title.as_deref())
-        .unwrap_or("No feed title");
+    let entry_title = sanitize_for_display(entry_meta.title.as_deref().unwrap_or("No entry title"));
+    let feed_title = sanitize_for_display(
+        app.current_feed
+            .as_ref()
+            .and_then(|feed| feed.title.as_deref())
+            .unwrap_or("No feed title"),
+    );
 
     let mut title = String::new();
     title.reserve_exact(entry_title.len() + feed_title.len() + 3);
-    title.push_str(entry_title);
+    title.push_str(&entry_title);
     title.push_str(" - ");
-    title.push_str(feed_title);
+    title.push_str(&feed_title);
 
     let theme = get_theme(app);
     let block = Block::default()

@@ -1,5 +1,31 @@
 use ratatui::widgets::ListState;
 
+/// strips control chars and zero-width/invisible unicode so TUI rendering isn't broken
+pub fn sanitize_for_display(s: &str) -> String {
+    s.chars()
+        .filter_map(|c| {
+            if is_control_or_invisible(c) {
+                None
+            } else if c == '\n' || c == '\t' || c == '\r' {
+                Some(' ')
+            } else {
+                Some(c)
+            }
+        })
+        .collect()
+}
+
+fn is_control_or_invisible(c: char) -> bool {
+    if c.is_control() {
+        return true;
+    }
+    matches!(
+        c,
+        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}'
+            | '\u{2060}' | '\u{2061}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
 #[derive(Debug)]
 pub struct StatefulList<T> {
     pub state: ListState,

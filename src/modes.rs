@@ -6,6 +6,8 @@ pub enum Selected {
     Feeds,
     Entries,
     Entry(crate::rss::EntryMetadata),
+    /// combined view of all unread entries across feeds ("[feed-name]: title")
+    CombinedUnread,
     None,
 }
 

@@ -1172,6 +1172,36 @@ pub fn get_entries_metas(
     Ok(entries)
 }
 
+/// all unread entries across feeds, each paired with its feed title for combined view
+pub fn get_all_unread_entries_with_feed_name(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<(String, EntryMetadata)>> {
+    let mut statement = conn.prepare(
+        "SELECT e.id, e.feed_id, e.title, e.pub_date, e.link, e.read_at, e.inserted_at, f.title AS feed_title
+         FROM entries e
+         JOIN feeds f ON e.feed_id = f.id
+         WHERE e.read_at IS NULL
+         ORDER BY e.pub_date DESC, e.inserted_at DESC",
+    )?;
+    let mut out = vec![];
+    for row in statement.query_map([], |row| {
+        let entry = EntryMetadata {
+            id: row.get(0)?,
+            feed_id: row.get(1)?,
+            title: row.get(2)?,
+            pub_date: row.get(3)?,
+            link: row.get(4)?,
+            read_at: row.get(5)?,
+            inserted_at: row.get(6)?,
+        };
+        let feed_title: Option<String> = row.get(7)?;
+        Ok((feed_title.unwrap_or_else(|| "?".to_string()), entry))
+    })? {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
 pub fn get_entries_links(
     conn: &rusqlite::Connection,
     read_mode: &ReadMode,

@@ -160,11 +160,12 @@ This is not a roadmap, just a list of potential features.
 
 ### my feature list
 
-- [x] visual indicator for which feeds have new/unacknowledged entries (partially complete)
-- [x] bug: text wrapping has been sorted
+- [x] [feature]: visual indicator for which feeds have new/unacknowledged entries (partially complete)
+- [x] [bug]: text wrapping has been sorted
+- [x] [feature]: [issue #44 from ckampfe/russ](https://github.com/ckampfe/russ/issues/44) for a combined feed. I love this idea, so I will implement soon.
 - [ ] create a secure github -> crates.io publishing workflow
 - [ ] sync / online mode?
-- [ ] integration with ollama or LMStudio for local summarization
+- [ ] integration with ollama or LMStudio for local summarization pipeline?
 
 ## Minimum Supported Rust Version (MSRV) policy
 

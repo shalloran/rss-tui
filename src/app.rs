@@ -2,6 +2,7 @@
 
 use crate::modes::{Mode, ReadMode, Selected};
 use crate::util;
+use crate::util::sanitize_for_display;
 use anyhow::Result;
 use copypasta::{ClipboardContext, ClipboardProvider};
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -63,6 +64,7 @@ impl App {
         (put_current_link_in_clipboard, Result<()>),
         (reset_feed_subscription_input, ()),
         (select_feeds, ()),
+        (show_combined_unread, Result<()>),
         (delete_feed, Result<()>),
         (toggle_help, Result<()>),
         (toggle_read, Result<()>),
@@ -97,9 +99,11 @@ impl App {
 
             if inner.entry_column_width != new_width {
                 inner.entry_column_width = new_width;
-                inner.select_and_show_current_entry().unwrap_or_else(|e| {
-                    inner.error_flash = vec![e];
-                })
+                if matches!(inner.selected, Selected::Entry(_)) {
+                    inner.select_and_show_current_entry().unwrap_or_else(|e| {
+                        inner.error_flash = vec![e];
+                    })
+                }
             }
 
             crate::ui::draw(f, chunks, &mut inner);
@@ -156,12 +160,18 @@ impl App {
 
     pub(crate) fn has_entries(&self) -> bool {
         let inner = self.inner.lock().unwrap();
-        !inner.entries.items.is_empty()
+        match &inner.selected {
+            Selected::CombinedUnread => !inner.combined_entries.items.is_empty(),
+            _ => !inner.entries.items.is_empty(),
+        }
     }
 
     pub(crate) fn has_current_entry(&self) -> bool {
         let inner = self.inner.lock().unwrap();
-        inner.current_entry_meta.is_some()
+        match &inner.selected {
+            Selected::CombinedUnread => inner.combined_entries.state.selected().is_some(),
+            _ => inner.current_entry_meta.is_some(),
+        }
     }
 
     pub(crate) fn cancel_pending_deletion(&self) {
@@ -265,6 +275,9 @@ pub struct AppImpl {
     // entry stuff
     pub current_entry_meta: Option<crate::rss::EntryMetadata>,
     pub entries: util::StatefulList<crate::rss::EntryMetadata>,
+    pub combined_entries: util::StatefulList<(String, crate::rss::EntryMetadata)>,
+    /// true when current Entry was opened from CombinedUnread (back goes to combined)
+    pub came_from_combined_unread: bool,
     pub entry_selection_position: usize,
     pub current_entry_text: String,
     pub entry_scroll_position: u16,
@@ -331,6 +344,8 @@ impl AppImpl {
             feed_activity_cache: std::collections::HashMap::new(),
             feed_errors: std::collections::HashMap::new(),
             entries,
+            combined_entries: vec![].into(),
+            came_from_combined_unread: false,
             selected,
             entry_scroll_position: 0,
             entry_lines_len: 0,
@@ -538,19 +553,29 @@ impl AppImpl {
     }
 
     fn get_selected_entry_meta(&self) -> Option<Result<crate::rss::EntryMetadata>> {
-        self.entries.state.selected().and_then(|selected_idx| {
-            self.entries
-                .items
-                .get(selected_idx)
-                .map(|item| item.id)
-                .map(|entry_id| crate::rss::get_entry_meta(&self.conn, entry_id))
-        })
+        match &self.selected {
+            Selected::CombinedUnread => self
+                .combined_entries
+                .state
+                .selected()
+                .and_then(|i| self.combined_entries.items.get(i))
+                .map(|(_, e)| Ok(e.clone())),
+            _ => self.entries.state.selected().and_then(|selected_idx| {
+                self.entries
+                    .items
+                    .get(selected_idx)
+                    .map(|item| item.id)
+                    .map(|entry_id| crate::rss::get_entry_meta(&self.conn, entry_id))
+            }),
+        }
     }
 
     fn update_current_entry_meta(&mut self) -> Result<()> {
         if let Some(entry_meta) = self.get_selected_entry_meta() {
             let entry_meta = entry_meta?;
             self.current_entry_meta = Some(entry_meta);
+        } else {
+            self.current_entry_meta = None;
         }
         Ok(())
     }
@@ -578,6 +603,9 @@ impl AppImpl {
     }
 
     pub(crate) fn select_and_show_current_entry(&mut self) -> Result<()> {
+        if matches!(self.selected, Selected::CombinedUnread) {
+            return self.select_and_show_combined_entry();
+        }
         if let Some(entry_meta) = &self.current_entry_meta {
             let entry_meta = entry_meta.clone();
 
@@ -607,12 +635,13 @@ impl AppImpl {
                 if let Some(html) = entry_html {
                     let text = html2text::from_read(html.as_bytes(), line_length.into())?;
                     self.entry_lines_len = text.matches('\n').count();
-                    self.current_entry_text = text;
+                    self.current_entry_text = sanitize_for_display(&text);
                 } else {
                     self.current_entry_text = String::new();
                 }
             }
 
+            self.came_from_combined_unread = false;
             self.selected = Selected::Entry(entry_meta);
         }
 
@@ -735,6 +764,69 @@ impl AppImpl {
         self.selected = Selected::Feeds;
     }
 
+    /// switch to combined unread view: all unread entries from all feeds as "[feed-name]: title"
+    pub fn show_combined_unread(&mut self) -> Result<()> {
+        let items = crate::rss::get_all_unread_entries_with_feed_name(&self.conn)?;
+        self.combined_entries = items.into();
+        self.selected = Selected::CombinedUnread;
+        if !self.combined_entries.items.is_empty() {
+            self.combined_entries.reset();
+        } else {
+            self.combined_entries.unselect();
+        }
+        self.update_current_entry_meta()?;
+        Ok(())
+    }
+
+    /// open the selected combined-entry (load its feed, set entry, show content)
+    fn select_and_show_combined_entry(&mut self) -> Result<()> {
+        let (_, entry_meta) = self
+            .combined_entries
+            .state
+            .selected()
+            .and_then(|i| self.combined_entries.items.get(i))
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no combined entry selected"))?;
+        let feed = crate::rss::get_feed(&self.conn, entry_meta.feed_id)?;
+        self.current_feed = Some(feed);
+        self.update_current_entries()?;
+        let idx = self
+            .entries
+            .items
+            .iter()
+            .position(|e| e.id == entry_meta.id)
+            .ok_or_else(|| anyhow::anyhow!("entry not in feed"))?;
+        self.entry_selection_position = idx;
+        self.entries.state.select(Some(idx));
+        self.update_current_entry_meta()?;
+        self.current_entry_meta = Some(entry_meta.clone());
+        if let Some(entry) = self.get_selected_entry_content() {
+            let entry = entry?;
+            let empty_string = String::from("No content or description tag provided.");
+            let entry_html = entry
+                .content
+                .as_ref()
+                .or(entry.description.as_ref())
+                .or(Some(&empty_string));
+            let line_length = if self.entry_column_width >= 5 {
+                self.entry_column_width - 2
+            } else {
+                1
+            };
+            if let Some(html) = entry_html {
+                let text = html2text::from_read(html.as_bytes(), line_length.into())?;
+                self.entry_lines_len = text.matches('\n').count();
+                self.current_entry_text = sanitize_for_display(&text);
+            } else {
+                self.current_entry_text = String::new();
+            }
+        }
+        self.entry_scroll_position = 0;
+        self.came_from_combined_unread = true;
+        self.selected = Selected::Entry(entry_meta);
+        Ok(())
+    }
+
     pub fn selected(&self) -> Selected {
         self.selected.clone()
     }
@@ -764,6 +856,22 @@ impl AppImpl {
                     self.update_current_entries()?;
                     self.update_current_entry_meta()?;
                     self.update_entry_selection_position();
+                }
+            }
+            Selected::CombinedUnread => {
+                if let Some(entry_meta) = &self.current_entry_meta {
+                    entry_meta.toggle_read(&self.conn)?;
+                    let items = crate::rss::get_all_unread_entries_with_feed_name(&self.conn)?;
+                    self.combined_entries = items.into();
+                    if !self.combined_entries.items.is_empty() {
+                        let idx = self.combined_entries.state.selected().unwrap_or(0);
+                        let idx = idx.min(self.combined_entries.items.len().saturating_sub(1));
+                        self.combined_entries.state.select(Some(idx));
+                    } else {
+                        self.combined_entries.unselect();
+                        self.selected = Selected::Feeds;
+                    }
+                    self.update_current_entry_meta()?;
                 }
             }
             Selected::Feeds => (),
@@ -842,6 +950,12 @@ impl AppImpl {
                 .items
                 .get(self.entry_selection_position)
                 .and_then(|entry| entry.link.as_deref()),
+            Selected::CombinedUnread => self
+                .combined_entries
+                .state
+                .selected()
+                .and_then(|i| self.combined_entries.items.get(i))
+                .and_then(|(_, e)| e.link.as_deref()),
             Selected::Entry(e) => e.link.as_deref(),
             Selected::None => None,
         }
@@ -889,7 +1003,7 @@ impl AppImpl {
                 entry_meta.title.as_deref().unwrap_or("No title"),
                 entry_meta.link.as_deref(),
             ),
-            Selected::Entries => {
+            Selected::Entries | Selected::CombinedUnread => {
                 if let Some(entry_meta) = &self.current_entry_meta {
                     (
                         entry_meta.title.as_deref().unwrap_or("No title"),
@@ -945,11 +1059,25 @@ impl AppImpl {
                 self.entry_selection_position = 0;
                 self.selected = Selected::Feeds
             }
+            Selected::CombinedUnread => {
+                self.selected = Selected::Feeds;
+            }
             Selected::Entry(_) => {
                 self.entry_scroll_position = 0;
-                self.selected = {
-                    self.current_entry_text = String::new();
-                    Selected::Entries
+                self.current_entry_text = String::new();
+                if self.came_from_combined_unread {
+                    self.came_from_combined_unread = false;
+                    let items = crate::rss::get_all_unread_entries_with_feed_name(&self.conn)?;
+                    self.combined_entries = items.into();
+                    if !self.combined_entries.items.is_empty() {
+                        self.combined_entries.reset();
+                    } else {
+                        self.combined_entries.unselect();
+                    }
+                    self.update_current_entry_meta()?;
+                    self.selected = Selected::CombinedUnread;
+                } else {
+                    self.selected = Selected::Entries;
                 }
             }
             Selected::None => (),
@@ -983,6 +1111,12 @@ impl AppImpl {
                     self.update_current_entry_meta()?;
                 }
             }
+            Selected::CombinedUnread => {
+                if !self.combined_entries.items.is_empty() {
+                    self.combined_entries.previous();
+                    self.update_current_entry_meta()?;
+                }
+            }
             Selected::Entry(_) => {
                 if let Some(n) = self.entry_scroll_position.checked_sub(1) {
                     self.entry_scroll_position = n
@@ -1007,6 +1141,7 @@ impl AppImpl {
                 Ok(())
             }
             Selected::Entries => self.select_and_show_current_entry(),
+            Selected::CombinedUnread => self.select_and_show_current_entry(),
             Selected::Entry(_) => Ok(()),
             Selected::None => Ok(()),
         }
@@ -1034,6 +1169,12 @@ impl AppImpl {
                 if !self.entries.items.is_empty() {
                     self.entries.next();
                     self.entry_selection_position = self.entries.state.selected().unwrap();
+                    self.update_current_entry_meta()?;
+                }
+            }
+            Selected::CombinedUnread => {
+                if !self.combined_entries.items.is_empty() {
+                    self.combined_entries.next();
                     self.update_current_entry_meta()?;
                 }
             }
