@@ -2,7 +2,8 @@
 
 We welcome contributions to rss-tui, see README.md for more information.
 
-## Unpublished to crates:
+## 0.6.7:
+- Fix license issue per #2
 - Fix invisible unicode/garbage characters breaking TUI rendering ([russ #40](https://github.com/ckampfe/russ/issues/40)): sanitize feed and entry titles/content by stripping control and zero-width characters before display.
     - Wrap and measure text by terminal display width (unicode-width) instead of byte length so CJK and emoji line up correctly and long words split on character boundaries.
     - Sanitize entry body once when loading; sanitize titles at render time so layout and block titles stay stable.
