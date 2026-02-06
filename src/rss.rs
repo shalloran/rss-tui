@@ -268,6 +268,16 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
     diligent_date_parser::parse_date(s).map(|dt| dt.with_timezone(&Utc))
 }
 
+// tag name without namespace: strip prefix (atom:entry -> entry) or Clark notation ({uri}entry -> entry)
+fn local_name(name: &[u8]) -> &[u8] {
+    if let Some(i) = name.iter().position(|&b| b == b'}')
+        && i + 1 < name.len()
+    {
+        return &name[i + 1..];
+    }
+    name.splitn(2, |&b| b == b':').last().unwrap_or(name)
+}
+
 // streaming parser for feeds using quick-xml
 fn parse_feed_streaming<R: Read>(mut reader: R, url: &str) -> Result<FeedAndEntries> {
     let mut buf = Vec::new();
@@ -303,13 +313,13 @@ fn parse_feed_streaming<R: Read>(mut reader: R, url: &str) -> Result<FeedAndEntr
     loop {
         match xml_reader.read_event_into(&mut buf2) {
             Ok(Event::Start(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = String::from_utf8_lossy(local_name(e.name().as_ref())).to_string();
 
                 // detect feed type
                 if feed_type.is_none() {
                     match name.as_str() {
                         "feed" => feed_type = Some(FeedKind::Atom),
-                        "rss" | "rdf:RDF" => feed_type = Some(FeedKind::Rss),
+                        "rss" | "RDF" => feed_type = Some(FeedKind::Rss),
                         _ => {}
                     }
                 }
@@ -338,14 +348,21 @@ fn parse_feed_streaming<R: Read>(mut reader: R, url: &str) -> Result<FeedAndEntr
                         };
                     }
                     "link" => {
-                        // check for href attribute (atom feeds)
+                        // atom: link@href; rss: link text content. try_get_attribute first, then scan by local name (namespaced attrs)
                         current_link_href = None;
-                        for attr in e.attributes().flatten() {
-                            let key = String::from_utf8_lossy(attr.key.as_ref());
-                            if key == "href" {
-                                current_link_href =
-                                    String::from_utf8_lossy(&attr.value).parse().ok();
-                                break;
+                        if let Ok(Some(attr)) = e.try_get_attribute(b"href") {
+                            current_link_href =
+                                Some(String::from_utf8_lossy(&attr.value).to_string());
+                        }
+                        if current_link_href.is_none() {
+                            for attr in e.attributes().flatten() {
+                                let key = String::from_utf8_lossy(local_name(attr.key.as_ref()))
+                                    .to_string();
+                                if key == "href" {
+                                    current_link_href =
+                                        Some(String::from_utf8_lossy(&attr.value).to_string());
+                                    break;
+                                }
                             }
                         }
                         current_text.clear();
@@ -357,6 +374,33 @@ fn parse_feed_streaming<R: Read>(mut reader: R, url: &str) -> Result<FeedAndEntr
                     _ => {}
                 }
             }
+            Ok(Event::Empty(e)) => {
+                // self-closing tag: treat as Start then End (e.g. <link href="..."/>)
+                let name = String::from_utf8_lossy(local_name(e.name().as_ref())).to_string();
+                if name == "link" {
+                    let mut href = None;
+                    if let Ok(Some(attr)) = e.try_get_attribute(b"href") {
+                        href = Some(String::from_utf8_lossy(&attr.value).to_string());
+                    }
+                    if href.is_none() {
+                        for attr in e.attributes().flatten() {
+                            let key =
+                                String::from_utf8_lossy(local_name(attr.key.as_ref())).to_string();
+                            if key == "href" {
+                                href = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(h) = href {
+                        if in_item || in_entry {
+                            current_entry.link = Some(h);
+                        } else if feed_link.is_none() {
+                            feed_link = Some(h);
+                        }
+                    }
+                }
+            }
             Ok(Event::Text(e)) => {
                 let text = e.unescape().unwrap_or_default();
                 current_text.push_str(&text);
@@ -366,7 +410,7 @@ fn parse_feed_streaming<R: Read>(mut reader: R, url: &str) -> Result<FeedAndEntr
                 current_text.push_str(&text);
             }
             Ok(Event::End(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = String::from_utf8_lossy(local_name(e.name().as_ref())).to_string();
 
                 match name.as_str() {
                     "item" => {
@@ -1249,6 +1293,53 @@ where
 mod tests {
     use super::*;
     const ZCT: &str = "https://zeroclarkthirty.com/feed";
+
+    #[test]
+    fn atom_feed_with_default_namespace_parses() {
+        // atom with default namespace (typical real-world atom)
+        let atom = r#"<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Test Feed</title>
+  <link href="http://example.com/"/>
+  <entry>
+    <title>Entry 1</title>
+    <link href="http://example.com/1"/>
+  </entry>
+</feed>"#;
+        let result = parse_feed_streaming(atom.as_bytes(), "http://example.com/feed");
+        let fa = result.expect("parse should succeed");
+        assert!(matches!(fa.feed.feed_kind, FeedKind::Atom));
+        assert_eq!(fa.entries.len(), 1, "expected one entry");
+        assert_eq!(
+            fa.entries[0].title.as_deref(),
+            Some("Entry 1"),
+            "entry title"
+        );
+        assert_eq!(
+            fa.entries[0].link.as_deref(),
+            Some("http://example.com/1"),
+            "entry link (atom uses link@href)"
+        );
+    }
+
+    #[test]
+    fn atom_feed_no_namespace_parses() {
+        // atom with no namespace (bare tags) – must still work
+        let atom = r#"<?xml version="1.0"?>
+<feed>
+  <title>Test Feed</title>
+  <link href="http://example.com/"/>
+  <entry>
+    <title>Entry 1</title>
+    <link href="http://example.com/1"/>
+  </entry>
+</feed>"#;
+        let result = parse_feed_streaming(atom.as_bytes(), "http://example.com/feed");
+        let fa = result.expect("parse should succeed");
+        assert!(matches!(fa.feed.feed_kind, FeedKind::Atom));
+        assert_eq!(fa.entries.len(), 1);
+        assert_eq!(fa.entries[0].link.as_deref(), Some("http://example.com/1"));
+    }
 
     #[test]
     fn it_fetches() {

@@ -130,6 +130,15 @@ impl Theme {
         }
     }
 
+    // version line (discreet, upper right)
+    pub fn version_line_color(&self) -> Color {
+        match self {
+            Theme::Boring => Color::DarkGray,
+            Theme::Hacker => Color::Rgb(0, 100, 0),
+            Theme::Ubuntu => Color::Rgb(100, 100, 100),
+        }
+    }
+
     // command bar text (hacker: black on green bar for contrast)
     pub fn command_bar_text_color(&self) -> Color {
         match self {
@@ -247,39 +256,57 @@ fn command_bar_height(f: &Frame, app: &AppImpl) -> u16 {
 pub fn predraw(f: &Frame, app: &AppImpl) -> Rc<[Rect]> {
     let bar_height = command_bar_height(f, app);
     let vertical = Layout::default()
-        .constraints([Constraint::Min(0), Constraint::Length(bar_height)].as_ref())
+        .constraints(
+            [
+                Constraint::Length(1),
+                Constraint::Min(0),
+                Constraint::Length(bar_height),
+            ]
+            .as_ref(),
+        )
         .direction(Direction::Vertical)
         .split(f.area());
-    let main_area = vertical[0];
-    let bottom_bar = vertical[1];
+    let version_bar = vertical[0];
+    let main_area = vertical[1];
+    let bottom_bar = vertical[2];
     let horizontal = Layout::default()
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
         .direction(Direction::Horizontal)
         .split(main_area);
-    // [left, right, command_bar]
-    let mut out = horizontal.to_vec();
+    // [version_bar, left, right, command_bar]
+    let mut out = vec![version_bar];
+    out.extend(horizontal.iter().cloned());
     out.push(bottom_bar);
     out.into()
 }
 
 pub fn draw(f: &mut Frame, chunks: Rc<[Rect]>, app: &mut AppImpl) {
-    draw_info_column(f, chunks[0], app);
+    if chunks.len() >= 4 {
+        draw_version_line(f, chunks[0], app);
+    }
+    let (left_idx, right_idx, bar_idx) = if chunks.len() >= 4 {
+        (1, 2, 3)
+    } else {
+        (0, 1, 2)
+    };
+
+    draw_info_column(f, chunks[left_idx], app);
 
     match &app.selected {
         Selected::Feeds | Selected::Entries => {
-            draw_entries(f, chunks[1], app);
+            draw_entries(f, chunks[right_idx], app);
         }
         Selected::CombinedUnread => {
-            draw_combined_entries(f, chunks[1], app);
+            draw_combined_entries(f, chunks[right_idx], app);
         }
         Selected::Entry(_entry_meta) => {
-            draw_entry(f, chunks[1], app);
+            draw_entry(f, chunks[right_idx], app);
         }
-        Selected::None => draw_entries(f, chunks[1], app),
+        Selected::None => draw_entries(f, chunks[right_idx], app),
     }
 
-    if chunks.len() >= 3 {
-        draw_command_bar(f, chunks[2], app);
+    if bar_idx < chunks.len() {
+        draw_command_bar(f, chunks[bar_idx], app);
     }
 }
 
@@ -774,6 +801,18 @@ fn command_bar_line(app: &AppImpl) -> String {
     parts.push(cmd("t", "theme"));
     parts.push(cmd("?", "help"));
     parts.join(" ")
+}
+
+fn draw_version_line(f: &mut Frame, area: Rect, app: &AppImpl) {
+    let theme = get_theme(app);
+    let version = env!("CARGO_PKG_VERSION");
+    let version_text = format!("rss-tui v.{}", version);
+    let dim = Style::default()
+        .fg(theme.version_line_color())
+        .bg(theme.background_color());
+    let line = Line::from(Span::styled(version_text, dim));
+    let p = Paragraph::new(line).alignment(Alignment::Right).style(dim);
+    f.render_widget(p, area);
 }
 
 fn draw_command_bar(f: &mut Frame, area: Rect, app: &mut AppImpl) {

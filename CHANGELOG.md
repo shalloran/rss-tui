@@ -2,6 +2,10 @@
 
 We welcome contributions to rss-tui, see README.md for more information.
 
+## 0.6.8:
+- Fix issue where some ATOM feeds might not load, due to fixes in TUI rendering applied in v0.6.7
+- Added version number to top right of TUI
+
 ## 0.6.7:
 - Fix license issue per #2
 - Fix invisible unicode/garbage characters breaking TUI rendering ([russ #40](https://github.com/ckampfe/russ/issues/40)): sanitize feed and entry titles/content by stripping control and zero-width characters before display.
