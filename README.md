@@ -163,9 +163,11 @@ This is not a roadmap, just a list of potential features.
 - [x] [feature]: visual indicator for which feeds have new/unacknowledged entries (partially complete)
 - [x] [bug]: text wrapping has been sorted
 - [x] [feature]: [issue #44 from ckampfe/russ](https://github.com/ckampfe/russ/issues/44) for a combined feed. I love this idea, so I will implement soon.
-- [ ] create a secure github -> crates.io publishing workflow
-- [ ] sync / online mode?
-- [ ] integration with ollama or LMStudio for local summarization pipeline?
+- [ ] [feature]: create a secure github -> crates.io publishing workflow
+- [ ] [feature]: per [issue #39 from ckampfe/russ](https://github.com/ckampfe/russ/issues/39) for a search/filter function, I'll likely work on this next
+- [ ] [feature]: per [issue #28 from ckampfe/russ](https://github.com/ckampfe/russ/issues/28) for an html text extractor if RSS/ATOM feeds don't show full text
+- [ ] [back-burnered] sync / online mode?
+- [ ] [back-burnered] integration with ollama or LMStudio for local summarization pipeline?
 
 ## Minimum Supported Rust Version (MSRV) policy
 
