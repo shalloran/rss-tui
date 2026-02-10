@@ -27,7 +27,7 @@ The binary will be installed as `rss-tui`. You can run it with:
 ```console
 rss-tui read
 ```
-**Note:** At this time, only macOS and Linux are tested. If you are using this on Windows, reach out!
+**Note:** At this time, macOS, Linux, and Windows (including WSL) are all working. If you run into platform specific issues, please open an issue and specify your OS.
 
 ### From this repository:
 
@@ -41,12 +41,6 @@ cargo install rss-tui --git https://github.com/shalloran/rss-tui
 `cargo install --force rss-tui` (from crates.io) or `cargo install --force --git https://github.com/shalloran/rss-tui rss-tui` (from git)
 
 **Note** that on its first run with no arguments, `rss-tui read` creates a SQLite database file called `feeds.db` to store RSS/Atom feeds in a location of its choosing. If you wish to override this, you can pass a path with the `-d` option, like `rss-tui -d /your/database/location/my_feeds.db`. If you use a custom database location, you will need to pass the `-d` option every time you invoke `rss-tui`. See the help with `rss-tui -h` for more information about where `rss-tui` will store the `feeds.db` database by default on your platform.
-
-## use
-
-rss-tui is modal, like vim. If you read the following controls section and tinker a bit, you'll have no trouble using rss-tui.
-
-There are two modes: normal mode and insert mode.
 
 ### controls - normal mode
 
@@ -66,119 +60,38 @@ Some normal mode controls vary based on whether you are currently selecting a fe
 - `E` - export all feeds to an OPML file (saves to a timestamped file in your database directory)
 - `ctrl-u`/`ctrl-d` - scroll up/down a page at a time
 
-### controls - insert mode
+### controls - other modes
 
-- `Esc` - go back to normal mode
-- `Enter` - subscribe to the feed you just typed in the input box
-- `Del` - delete the selected feed
-
-## help/options/config
-
-```console
-rss-tui -h
-A TUI RSS reader with vim-like controls and a local-first, offline-first focus
-
-Usage: rss-tui <COMMAND>
-
-Commands:
-  read    Read your feeds
-  import  Import feeds from an OPML document
-  export  Export feeds to an OPML document
-  help    Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
-```
-
-## read mode
-
-```console
-rss-tui read -h
-Read your feeds
-
-Usage: rss-tui read [OPTIONS]
-
-Options:
-  -d, --database-path <DATABASE_PATH>
-          Override where `rss-tui` stores and reads feeds. By default, the feeds database on Linux this will be at `XDG_DATA_HOME/rss-tui/feeds.db` or `$HOME/.local/share/rss-tui/feeds.db`. On MacOS it will be at `$HOME/Library/Application Support/rss-tui/feeds.db`. On Windows it will be at `{FOLDERID_LocalAppData}/rss-tui/data/feeds.db`
-  -t, --tick-rate <TICK_RATE>
-          time in ms between two ticks [default: 250]
-  -f, --flash-display-duration-seconds <FLASH_DISPLAY_DURATION_SECONDS>
-          number of seconds to show the flash message before clearing it [default: 4]
-  -n, --network-timeout <NETWORK_TIMEOUT>
-          RSS/Atom network request timeout in seconds [default: 5]
-  -h, --help
-          Print help
-```
-
-## import OPML mode
-
-```console
-rss-tui import -h
-Import feeds from an OPML document
-
-Usage: rss-tui import [OPTIONS] --opml-path <OPML_PATH>
-
-Options:
-  -d, --database-path <DATABASE_PATH>
-          Override where `rss-tui` stores and reads feeds. By default, the feeds database on Linux this will be at `XDG_DATA_HOME/rss-tui/feeds.db` or `$HOME/.local/share/rss-tui/feeds.db`. On MacOS it will be at `$HOME/Library/Application Support/rss-tui/feeds.db`. On Windows it will be at `{FOLDERID_LocalAppData}/rss-tui/data/feeds.db`
-  -o, --opml-path <OPML_PATH>
-
-  -n, --network-timeout <NETWORK_TIMEOUT>
-          RSS/Atom network request timeout in seconds [default: 5]
-  -h, --help
-          Print help
-```
-
-## export OPML mode
-
-```console
-rss-tui export -h
-Export feeds to an OPML document
-
-Usage: rss-tui export [OPTIONS] --opml-path <OPML_PATH>
-
-Options:
-  -d, --database-path <DATABASE_PATH>
-          Override where `rss-tui` stores and reads feeds. By default, the feeds database on Linux this will be at `XDG_DATA_HOME/rss-tui/feeds.db` or `$HOME/.local/share/rss-tui/feeds.db`. On MacOS it will be at `$HOME/Library/Application Support/rss-tui/feeds.db`. On Windows it will be at `{FOLDERID_LocalAppData}/rss-tui/data/feeds.db`
-  -o, --opml-path <OPML_PATH>
-          Path where the OPML file will be written
-  -h, --help
-          Print help
-```
-
-You can also export from within the TUI by pressing `E` (capital E) in normal mode. This will create a timestamped OPML file in the same directory as your database.
+- There are other modes which will reveal controls to you, but these are helpful:
+        - `Esc` - go back to normal mode
+        - `Enter` - subscribe to the feed you just typed in the input box
+        - `Del` - delete the selected feed
 
 ## design
 
 rss-tui is a [tui](https://crates.io/crates/tui) app that uses [crossterm](https://crates.io/crates/crossterm). rss-tui stores all application data in a SQLite database. 
 
-## features/todo
+## features/todos
 
-This is not a roadmap, just a list of potential features.
-
-### my feature list
-
+- [x] See [[changelog.md]] for more details...
 - [x] [feature]: visual indicator for which feeds have new/unacknowledged entries (partially complete)
 - [x] [bug]: text wrapping has been sorted
 - [x] [feature]: [issue #44 from ckampfe/russ](https://github.com/ckampfe/russ/issues/44) for a combined feed. I love this idea, so I will implement soon.
-- [ ] [feature]: create a secure github -> crates.io publishing workflow
-- [ ] [feature]: per [issue #39 from ckampfe/russ](https://github.com/ckampfe/russ/issues/39) for a search/filter function, I'll likely work on this next
+- [ ] [feature]: per [issue #39 from ckampfe/russ](https://github.com/ckampfe/russ/issues/39) for a search/filter function, I'll work on this next.
 - [ ] [feature]: per [issue #28 from ckampfe/russ](https://github.com/ckampfe/russ/issues/28) for an html text extractor if RSS/ATOM feeds don't show full text
+- [ ] [feature]: create a secure github -> crates.io publishing workflow
 - [ ] [back-burnered] sync / online mode?
 - [ ] [back-burnered] integration with ollama or LMStudio for local summarization pipeline?
 
-## Minimum Supported Rust Version (MSRV) policy
+## msrv policy
 
-rss-tui targets the latest stable version of the Rust compiler. Older Rust version may work, but we are not supporting them.
+rss-tui targets the latest stable version of the Rust compiler. Older Rust version may work, but this project is not explicitly supporting them.
 
 ## SQLite version
 
 `rss-tui` compiles and bundles its own embedded SQLite via the [Rusqlite](https://github.com/rusqlite/rusqlite) project, which is version 3.45.1.
 
-If you prefer to use the version of SQLite on your system, edit `Cargo.toml` to
-remove the `"bundled"` feature from the `rusqlite` dependency and recompile `rss-tui`.
+If you prefer to use the version of SQLite on your system, edit `Cargo.toml` to remove the `"bundled"` feature from the `rusqlite` dependency and recompile `rss-tui`.
 
 ## contributing
 
