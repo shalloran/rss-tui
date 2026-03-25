@@ -584,8 +584,7 @@ impl AppImpl {
         if matches!(self.selected, Selected::Entry(_)) {
             self.entry_scroll_position = self
                 .entry_scroll_position
-                .checked_sub(self.entry_lines_rendered_len)
-                .unwrap_or_default()
+                .saturating_sub(self.entry_lines_rendered_len)
         };
     }
 
